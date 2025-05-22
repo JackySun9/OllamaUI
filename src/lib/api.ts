@@ -186,7 +186,13 @@ export const createChatStream = (
     return { close: () => {} };
   }
   
-  const ws = new WebSocket(`ws://${API_BASE_URL.replace(/^http[s]?:\/\//, '')}/chat/stream`);
+  // Fix WebSocket URL formation
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsBaseUrl = API_BASE_URL.replace(/^http[s]?:\/\//, '');
+  const wsUrl = `${wsProtocol}//${wsBaseUrl}/chat/stream`;
+  
+  console.log('Connecting to WebSocket URL:', wsUrl);
+  const ws = new WebSocket(wsUrl);
   
   // Set connection timeout
   const connectionTimeout = setTimeout(() => {
@@ -198,12 +204,14 @@ export const createChatStream = (
   
   ws.onopen = () => {
     clearTimeout(connectionTimeout);
-    ws.send(JSON.stringify(payload));
+    console.log('WebSocket connection opened, sending payload');
+    ws.send(JSON.stringify({...payload, stream: true}));
   };
   
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      console.log('WebSocket message received:', data);
       onMessage(data);
     } catch (error) {
       onError(new Error(`Failed to parse streaming response: ${error instanceof Error ? error.message : 'Unknown error'}`));

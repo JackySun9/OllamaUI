@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { formatTimestamp } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
@@ -9,12 +9,31 @@ interface ChatMessageProps {
   content: string | { text: string; image?: string };
   timestamp?: Date;
   isLoading?: boolean;
+  isStreaming?: boolean;
 }
 
-export function ChatMessage({ role, content, timestamp = new Date(), isLoading = false }: ChatMessageProps) {
+export function ChatMessage({ 
+  role, 
+  content, 
+  timestamp = new Date(), 
+  isLoading = false,
+  isStreaming = false
+}: ChatMessageProps) {
   const [copied, setCopied] = React.useState(false);
+  const [showCursor, setShowCursor] = useState(true);
   
   const isUser = role === 'user';
+  
+  // Blinking cursor effect for streaming
+  useEffect(() => {
+    if (!isStreaming) return;
+    
+    const interval = setInterval(() => {
+      setShowCursor(prev => !prev);
+    }, 500);
+    
+    return () => clearInterval(interval);
+  }, [isStreaming]);
   
   // Handle loading state with skeleton
   if (isLoading && !isUser) {
@@ -41,7 +60,7 @@ export function ChatMessage({ role, content, timestamp = new Date(), isLoading =
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div 
-        className={`relative px-4 py-2 rounded-lg max-w-[80%] ${
+        className={`relative px-3 sm:px-4 py-2 rounded-lg max-w-[95%] sm:max-w-[80%] ${
           isUser 
             ? 'bg-primary text-primary-foreground' 
             : 'bg-secondary text-secondary-foreground'
@@ -70,7 +89,10 @@ export function ChatMessage({ role, content, timestamp = new Date(), isLoading =
           </div>
         )}
         
-        <div className="whitespace-pre-wrap">{messageContent}</div>
+        <div className="whitespace-pre-wrap text-sm sm:text-base">
+          {messageContent}
+          {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
+        </div>
         
         <div className="text-xs opacity-70 mt-1 text-right">
           {formatTimestamp(timestamp)}

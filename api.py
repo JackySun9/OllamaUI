@@ -168,6 +168,10 @@ def clean_model_response(text, model_name=None):
     if not text:
         return ""
     
+    # First, remove any duplicated words that sometimes occur in streaming
+    # This regex looks for repeated words like "word word" and replaces with "word"
+    text = re.sub(r'\b(\w+)(\s+\1\b)+', r'\1', text)
+    
     # Check if this is a "thinking model" that should display its reasoning
     is_thinking_model = False
     if model_name:
@@ -180,33 +184,28 @@ def clean_model_response(text, model_name=None):
                            any(keyword in base_model.lower() 
                                for keyword in ["think", "reasoning", "cot"])
     
-    if is_thinking_model:
-        # For thinking models, preserve the tags but format them nicely
-        cleaned = text
-        
-        # Optional: Format <think> sections to look better
-        cleaned = re.sub(r'<think>', '\n\n💭 *Thinking:*\n', cleaned)
-        cleaned = re.sub(r'</think>', '\n\n', cleaned)
-        
-        # Format other tags but preserve content
-        cleaned = re.sub(r'<reasoning>', '\n\n💡 *Reasoning:*\n', cleaned)
-        cleaned = re.sub(r'</reasoning>', '\n\n', cleaned)
-        cleaned = re.sub(r'<answer>', '\n\n✅ *Answer:*\n', cleaned)
-        cleaned = re.sub(r'</answer>', '', cleaned)
-    else:
-        # For regular models, remove thinking sections entirely
-        cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-        cleaned = re.sub(r'<answer>|</answer>', '', cleaned)
-        cleaned = re.sub(r'<reasoning>.*?</reasoning>', '', cleaned, flags=re.DOTALL)
+    # Always remove thinking sections - we handle in separate UI components
+    # First, handle any nested thinking tags by finding the outermost ones
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    
+    # Remove other tags that might appear
+    text = re.sub(r'<answer>|</answer>', '', text)
+    text = re.sub(r'<reasoning>.*?</reasoning>', '', text, flags=re.DOTALL)
     
     # Common cleaning for all models
     # Replace multiple newlines with just two
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # Fix periods at line ends (common in some model outputs)
+    text = re.sub(r'\.\s*\n', '\n', text)
+    
+    # Fix any leftover duplicated punctuation
+    text = re.sub(r'([.,?!:;])\1+', r'\1', text)
     
     # Trim leading/trailing whitespace
-    cleaned = cleaned.strip()
+    text = text.strip()
     
-    return cleaned
+    return text
 
 # --- API Data Models ---
 class MessageContent(BaseModel):
@@ -287,31 +286,31 @@ async def chat(request: ChatRequest):
 async def chat_stream(websocket: WebSocket):
     try:
         await websocket.accept()
+        logging.info("WebSocket connection accepted")
         
         # Receive the initial chat request
         data = await websocket.receive_text()
         request_data = json.loads(data)
+        logging.info(f"Received WebSocket request: {request_data}")
         
         try:
             chat_request = ChatRequest(**request_data)
         except Exception as validation_error:
+            error_msg = f"Invalid request format: {str(validation_error)}"
+            logging.error(error_msg)
             await websocket.send_json({
-                "error": f"Invalid request format: {str(validation_error)}"
+                "error": error_msg
             })
             await websocket.close()
             return
         
-        # Check if streaming is supported
-        if not chat_request.stream:
-            await websocket.send_json({
-                "error": "Stream parameter must be set to true for websocket API"
-            })
-            await websocket.close()
-            return
+        # Force stream to true for WebSocket API
+        chat_request.stream = True
             
         try:
             from litellm import completion
             
+            logging.info(f"Starting streaming completion for model: {chat_request.model}")
             # Stream the chat response
             response_stream = completion(
                 model=chat_request.model,
@@ -324,6 +323,8 @@ async def chat_stream(websocket: WebSocket):
             )
             
             full_response = ""
+            in_think_tag = False
+            current_thinking = ""
             
             for chunk in response_stream:
                 delta = None
@@ -331,45 +332,87 @@ async def chat_stream(websocket: WebSocket):
                 # Handle different response formats
                 if hasattr(chunk, 'choices') and chunk.choices:
                     if hasattr(chunk.choices[0], 'delta'):
-                        if hasattr(chunk.choices[0].delta, 'content'):
+                        if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content is not None:
                             delta = chunk.choices[0].delta.content
-                        elif hasattr(chunk.choices[0].delta, 'text'):
+                        elif hasattr(chunk.choices[0].delta, 'text') and chunk.choices[0].delta.text is not None:
                             delta = chunk.choices[0].delta.text
-                    elif hasattr(chunk.choices[0], 'text'):
+                    elif hasattr(chunk.choices[0], 'text') and chunk.choices[0].text is not None:
                         delta = chunk.choices[0].text
-                    elif hasattr(chunk.choices[0], 'message') and hasattr(chunk.choices[0].message, 'content'):
+                    elif hasattr(chunk.choices[0], 'message') and hasattr(chunk.choices[0].message, 'content') and chunk.choices[0].message.content is not None:
                         delta = chunk.choices[0].message.content
-                        
-                if delta:
-                    full_response += delta
-                    cleaned_response = clean_model_response(full_response, chat_request.model)
-                    
-                    await websocket.send_json({
-                        "chunk": delta,
-                        "full_response": cleaned_response
-                    })
+                
+                # Skip empty deltas
+                if not delta:
+                    continue
+                
+                # Detect and handle <think> tags while streaming
+                full_response += delta
+                
+                # Track if we're inside a thinking section
+                if "<think>" in delta:
+                    in_think_tag = True
+                    current_thinking = ""
+                    continue  # Don't send this chunk to the client
+                
+                if in_think_tag:
+                    current_thinking += delta
+                    if "</think>" in delta:
+                        in_think_tag = False
+                        # Don't send thinking content
+                    continue  # Skip sending chunks while in thinking mode
+                
+                # Fix common streaming issues like duplicated words
+                cleaned_delta = delta
+                
+                # Only send non-thinking content
+                await websocket.send_json({
+                    "chunk": cleaned_delta,
+                    "message": {
+                        "role": "assistant",
+                        "content": cleaned_delta
+                    }
+                })
                 
                 # Small delay to not overwhelm the client
                 await asyncio.sleep(0.01)
                 
+            # Clean final response - remove thinking tags properly
+            cleaned_response = clean_model_response(full_response, chat_request.model)
+            
+            # Post-process response to fix duplicated words
+            # This regex looks for repeated words like "word word" and replaces with "word"
+            cleaned_response = re.sub(r'\b(\w+)(\s+\1\b)+', r'\1', cleaned_response)
+            
+            # Fix periods at line ends
+            cleaned_response = re.sub(r'\.\s*\n', '\n', cleaned_response)
+            
             # Send final message
             await websocket.send_json({
                 "done": True,
                 "message": {
                     "role": "assistant",
-                    "content": clean_model_response(full_response, chat_request.model)
+                    "content": cleaned_response
                 },
                 "model": chat_request.model
             })
+            
+            logging.info("Streaming completed successfully")
                 
         except Exception as e:
-            logging.error(f"Streaming error: {str(e)}", exc_info=True)
-            await websocket.send_json({"error": str(e)})
+            error_msg = f"Streaming error: {str(e)}"
+            logging.error(error_msg, exc_info=True)
+            await websocket.send_json({"error": error_msg})
     
     except WebSocketDisconnect:
         logging.info("WebSocket disconnected")
     except Exception as e:
         logging.error(f"WebSocket error: {str(e)}", exc_info=True)
+    finally:
+        # Ensure the connection is closed properly
+        try:
+            await websocket.close()
+        except:
+            pass
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

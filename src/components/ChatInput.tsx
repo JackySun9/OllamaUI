@@ -68,7 +68,7 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
           <img 
             src={imagePreview} 
             alt="Preview" 
-            className="h-20 rounded-md object-cover"
+            className="h-16 sm:h-20 rounded-md object-cover"
           />
           <Button
             type="button"
@@ -82,17 +82,17 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
         </div>
       )}
       
-      <div className="flex gap-2">
+      <div className="flex gap-1 sm:gap-2">
         <Textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
-          className="min-h-[50px] resize-none"
+          className="min-h-[50px] resize-none text-sm sm:text-base p-2 sm:p-3"
           disabled={isLoading}
         />
         
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1 sm:gap-2">
           <Button
             type="button"
             variant="outline"
