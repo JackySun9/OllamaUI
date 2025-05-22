@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { Button } from '@/components/ui/button';
@@ -65,11 +65,18 @@ export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHis
     
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX)) {
+      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX) && !key.endsWith('-current')) {
         // Extract model name from key
-        const parts = key.split('-');
-        if (parts.length >= 2) {
-          models.add(parts[1]);
+        // Key format: ollama-webui-chat-history-{modelString}-{conversationId}
+        const prefixLength = CHAT_HISTORY_STORAGE_PREFIX.length + 1; // +1 for the dash
+        const remainingKey = key.substring(prefixLength);
+        
+        // Find the pattern "-conv-" to separate model string from conversation ID
+        // Conversation IDs always start with "conv-" so look for that pattern
+        const convPatternIndex = remainingKey.indexOf('-conv-');
+        if (convPatternIndex !== -1) {
+          const modelString = remainingKey.substring(0, convPatternIndex);
+          models.add(modelString);
         }
       }
     }
@@ -93,9 +100,17 @@ export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHis
             
             if (chatData.length > 0) {
               // Extract model and conversation ID from the key
-              const keyParts = key.split('-');
-              const modelString = keyParts[1];
-              const conversationId = keyParts.slice(2).join('-');
+              // Key format: ollama-webui-chat-history-{modelString}-{conversationId}
+              const prefixLength = CHAT_HISTORY_STORAGE_PREFIX.length + 1; // +1 for the dash
+              const remainingKey = key.substring(prefixLength);
+              
+              // Find the pattern "-conv-" to separate model string from conversation ID
+              // Conversation IDs always start with "conv-" so look for that pattern
+              const convPatternIndex = remainingKey.indexOf('-conv-');
+              if (convPatternIndex === -1) continue; // Invalid format
+              
+              const modelString = remainingKey.substring(0, convPatternIndex);
+              const conversationId = remainingKey.substring(convPatternIndex + 1); // +1 to skip the dash
               
               // Find the newest timestamp
               let latestTimestamp = 0;
@@ -106,7 +121,7 @@ export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHis
               }
               
               conversations.push({
-                id: `${modelString}-${conversationId}`,
+                id: `${modelString}::${conversationId}`,
                 title: getConversationTitle(chatData),
                 lastMessage: getLastMessage(chatData),
                 timestamp: latestTimestamp || Date.now(),
@@ -160,36 +175,77 @@ export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHis
   // Handle conversation selection
   const handleSelectConversation = (fullId: string) => {
     // Extract model and conversation ID
-    const parts = fullId.split('-');
-    const modelString = parts[0];
-    const conversationId = parts.slice(1).join('-');
+    // Format: {modelString}::{conversationId}
+    const separatorIndex = fullId.indexOf('::');
+    if (separatorIndex === -1) return; // Invalid format
+    
+    const modelString = fullId.substring(0, separatorIndex);
+    const conversationId = fullId.substring(separatorIndex + 2);
     
     // Set current conversation in localStorage
     localStorage.setItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`, conversationId);
     
-    // Trigger callback
+    // We need to handle model switching and conversation loading
+    // selectedModel here is a string, not a ModelSelection object
+    if (selectedModel !== modelString) {
+      // Need to switch models first, then load the conversation
+      // Try to parse the model string to get provider and model
+      let provider = 'ollama';
+      let model = modelString;
+      
+      if (modelString.includes('/')) {
+        const [providerPart, modelPart] = modelString.split('/', 2);
+        provider = providerPart;
+        model = modelPart;
+      }
+      
+      const newModelSelection = {
+        provider,
+        model,
+        manualModelString: modelString.includes('/') ? modelString : undefined
+      };
+      
+      // Save the model selection
+      localStorage.setItem('ollama-webui-last-model', JSON.stringify(newModelSelection));
+      
+      // Dispatch event to update model
+      window.dispatchEvent(new CustomEvent('model-selected', { 
+        detail: newModelSelection 
+      }));
+    }
+    
+    // Trigger callback for mobile view
     if (onSelectConversation) {
       onSelectConversation();
     }
     
-    // UI will refresh on next chatInterface mount
-    window.location.reload();
-  };
+    // Instead of page reload, dispatch a custom event with conversation details
+    window.dispatchEvent(new CustomEvent('conversation-selected', { 
+      detail: { 
+        modelString, 
+        conversationId,
+        needsModelChange: selectedModel !== modelString
+      } 
+    }));
+   };
 
   // Delete a conversation
   const deleteConversation = (fullId: string, event: React.MouseEvent) => {
     event.stopPropagation();
     
     // Extract model and conversation ID
-    const parts = fullId.split('-');
-    const modelString = parts[0];
-    const conversationId = parts.slice(1).join('-');
+    // Format: {modelString}::{conversationId}
+    const separatorIndex = fullId.indexOf('::');
+    if (separatorIndex === -1) return; // Invalid format
+    
+    const modelString = fullId.substring(0, separatorIndex);
+    const conversationId = fullId.substring(separatorIndex + 2);
     
     // Remove from localStorage
     localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-${conversationId}`);
     
     // If this was the current conversation, handle accordingly
-    if (fullId === `${selectedModel}-${currentConversationId}`) {
+    if (fullId === `${selectedModel}::${currentConversationId}`) {
       // Clear current conversation pointer
       localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`);
     }
@@ -235,7 +291,7 @@ export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHis
           <div 
             key={conversation.id} 
             className={`p-2 rounded cursor-pointer hover:bg-muted text-sm flex items-center 
-                      ${conversation.id === `${selectedModel}-${currentConversationId}` ? 
+                      ${conversation.id === `${selectedModel}::${currentConversationId}` ? 
                         'bg-muted/70 border-l-4 border-primary pl-1.5' : ''}`}
             onClick={() => handleSelectConversation(conversation.id)}
           >
@@ -305,6 +361,49 @@ export function ChatInterface({
     return `conv-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   };
 
+  // Function to load a specific conversation
+  const loadConversation = useCallback((modelString: string, conversationId: string) => {
+    const storageKey = `${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}`;
+    const savedHistory = localStorage.getItem(`${storageKey}-${conversationId}`);
+    
+    if (savedHistory) {
+      try {
+        const parsedHistory = JSON.parse(savedHistory);
+        if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+          // Remove timestamp property when loading history for UI display
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const displayHistory = parsedHistory.map(({ timestamp: _, ...item }: StoredChatHistory) => item as ChatHistory);
+          setChatHistory(displayHistory);
+          setCurrentConversationId(conversationId);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Failed to parse saved chat history:', err);
+        setChatHistory([]);
+        setCurrentConversationId(null);
+      }
+    }
+  }, []);
+
+  // Listen for conversation selection events
+  useEffect(() => {
+    const handleConversationSelection = (event: CustomEvent) => {
+      const { modelString, conversationId, needsModelChange } = event.detail;
+      
+      if (!needsModelChange) {
+        // Same model, just load the conversation directly
+        loadConversation(modelString, conversationId);
+      }
+      // If model change is needed, the model-selected event will trigger and load the conversation
+    };
+    
+    window.addEventListener('conversation-selected', handleConversationSelection as EventListener);
+    
+    return () => {
+      window.removeEventListener('conversation-selected', handleConversationSelection as EventListener);
+    };
+  }, [loadConversation]);
+
   // Load chat history from localStorage when model changes or newChat is triggered
   useEffect(() => {
     const storageKey = getStorageKey();
@@ -315,7 +414,7 @@ export function ChatInterface({
       startNewConversation();
       if (onChatLoad) onChatLoad();
     } else {
-      // Check if we have an active conversation going
+      // Model changed - load existing conversation for this model if available
       const currentConvId = localStorage.getItem(`${storageKey}-current`);
       
       if (currentConvId) {
@@ -330,18 +429,20 @@ export function ChatInterface({
               // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const displayHistory = parsedHistory.map(({ timestamp: _, ...item }: StoredChatHistory) => item as ChatHistory);
               setChatHistory(displayHistory);
+            } else {
+              setChatHistory([]);
             }
           } catch (err) {
             console.error('Failed to parse saved chat history:', err);
-            // If there's an error parsing, we'll just start with an empty history
             setChatHistory([]);
           }
         } else {
           setChatHistory([]);
         }
       } else {
-        // No current conversation, start a new one
-        startNewConversation();
+        // No conversation exists for this model - start fresh but don't create new ID until first message
+        setChatHistory([]);
+        setCurrentConversationId(null);
       }
       
       if (onChatLoad) onChatLoad();
@@ -364,9 +465,6 @@ export function ChatInterface({
       
       localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
       localStorage.setItem(`${storageKey}-current`, currentConversationId);
-    } else if (chatHistory.length === 0 && currentConversationId) {
-      // If chat was cleared but we want to keep the same conversation ID
-      localStorage.removeItem(`${storageKey}-${currentConversationId}`);
     }
   }, [chatHistory, selectedModel, currentConversationId]);
 
@@ -415,6 +513,18 @@ export function ChatInterface({
     if (!selectedModel) {
       setError('Please select a model from the dropdown in the top-right corner');
       return;
+    }
+
+    // Create conversation ID if it doesn't exist
+    if (!currentConversationId) {
+      const newId = generateConversationId();
+      setCurrentConversationId(newId);
+      
+      // Save the new conversation ID
+      const storageKey = getStorageKey();
+      if (storageKey) {
+        localStorage.setItem(`${storageKey}-current`, newId);
+      }
     }
 
     // Create user message for UI
