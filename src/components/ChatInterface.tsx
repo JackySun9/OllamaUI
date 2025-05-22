@@ -4,6 +4,7 @@ import { ChatInput } from '@/components/ChatInput';
 import { Button } from '@/components/ui/button';
 import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType, MessageContent } from '@/types';
 import { createChatStream } from '@/lib/api';
+import { parseAssistantContent } from '@/lib/utils';
 import { Trash2, Eraser, ExternalLink } from 'lucide-react';
 import { ModelDropdown } from '@/components/ModelDropdown';
 
@@ -567,7 +568,11 @@ export function ChatInterface({
             { role: 'user' as const, content: userMessageContent },
           ];
           if (item.assistant.content) {
-            turn.push({ role: 'assistant' as const, content: item.assistant.content });
+            // Extract raw content if it's a parsed response, otherwise use as-is
+            const assistantContent = typeof item.assistant.content === 'string' 
+              ? item.assistant.content 
+              : item.assistant.content.rawContent;
+            turn.push({ role: 'assistant' as const, content: assistantContent });
           }
           return turn;
         }),
@@ -628,19 +633,30 @@ export function ChatInterface({
               return updatedHistory;
             });
           } else if (data.done) {
-            // Final message with complete response
-            if (typeof data.message === 'object' && data.message && 'content' in data.message) {
-              setChatHistory(prev => {
-                const updatedHistory = [...prev];
-                const lastMessage = updatedHistory[updatedHistory.length - 1];
-                
+            // Final message with complete response - parse the content for multiple output types
+            setChatHistory(prev => {
+              const updatedHistory = [...prev];
+              const lastMessage = updatedHistory[updatedHistory.length - 1];
+              
+              let finalContent = '';
+              if (typeof data.message === 'object' && data.message && 'content' in data.message) {
                 const message = data.message as { content: unknown };
                 const content = message.content;
-                lastMessage.assistant.content = typeof content === 'string' ? content : String(content);
-                
-                return updatedHistory;
-              });
-            }
+                finalContent = typeof content === 'string' ? content : String(content);
+              } else {
+                // Fallback to current content if no final message
+                finalContent = typeof lastMessage.assistant.content === 'string' 
+                  ? lastMessage.assistant.content 
+                  : lastMessage.assistant.content.rawContent;
+              }
+              
+              // Parse the final content for multiple output types
+              if (finalContent.trim()) {
+                lastMessage.assistant.content = parseAssistantContent(finalContent);
+              }
+              
+              return updatedHistory;
+            });
             
             // Mark loading as complete
             setIsLoading(false);

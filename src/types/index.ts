@@ -18,6 +18,22 @@ export interface ChatMessage {
   content: string | MessageContent[];
 }
 
+// New types for multiple output formats
+export type OutputType = 'text' | 'code' | 'command' | 'json' | 'xml' | 'markdown' | 'math' | 'table';
+
+export interface OutputBlock {
+  type: OutputType;
+  content: string;
+  language?: string; // For code blocks (e.g., 'javascript', 'python', 'bash')
+  title?: string; // Optional title for the block
+  metadata?: Record<string, string | number | boolean>; // Additional metadata
+}
+
+export interface ParsedAssistantContent {
+  blocks: OutputBlock[];
+  rawContent: string; // Keep original content for fallback
+}
+
 export interface ChatHistory {
   user: {
     content: string | { 
@@ -26,7 +42,7 @@ export interface ChatHistory {
     };
   };
   assistant: {
-    content: string;
+    content: string | ParsedAssistantContent;
   };
 }
 

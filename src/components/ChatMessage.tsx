@@ -3,10 +3,12 @@ import { formatTimestamp } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, User, Bot } from 'lucide-react';
 import { Skeleton } from "@/components/ui/skeleton";
+import { OutputBlock } from '@/components/OutputBlock';
+import { ParsedAssistantContent } from '@/types';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
-  content: string | { text: string; image?: string };
+  content: string | { text: string; image?: string } | ParsedAssistantContent;
   timestamp?: Date;
   isLoading?: boolean;
   isStreaming?: boolean;
@@ -68,8 +70,29 @@ export function ChatMessage({
     );
   }
   
-  const messageContent = typeof content === 'string' ? content : content.text;
-  const hasImage = typeof content !== 'string' && content.image;
+  // Handle different content types
+  const getMessageContent = (): string => {
+    if (typeof content === 'string') return content;
+    if ('text' in content) return content.text;
+    if ('rawContent' in content) return content.rawContent;
+    return '';
+  };
+
+  const getImageUrl = (): string | undefined => {
+    if (typeof content === 'string' || 'rawContent' in content) return undefined;
+    return content.image;
+  };
+
+  const getParsedContent = (): ParsedAssistantContent | null => {
+    if (typeof content === 'object' && 'blocks' in content) {
+      return content;
+    }
+    return null;
+  };
+
+  const messageContent = getMessageContent();
+  const hasImage = getImageUrl() !== undefined;
+  const parsedContent = getParsedContent();
   
   const copyToClipboard = () => {
     navigator.clipboard.writeText(messageContent);
@@ -93,17 +116,26 @@ export function ChatMessage({
           {hasImage && (
             <div className="mb-3">
               <img 
-                src={typeof content !== 'string' ? content.image : ''} 
+                src={getImageUrl() || ''} 
                 alt="Uploaded image"
                 className="rounded-md max-h-80 max-w-full object-contain"
               />
             </div>
           )}
           
-          <div className="whitespace-pre-wrap prose prose-neutral prose-p:leading-relaxed prose-pre:p-0 text-sm sm:text-base max-w-none">
-            {messageContent}
-            {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
-          </div>
+          {parsedContent ? (
+            <div className="space-y-3">
+              {parsedContent.blocks.map((block, index) => (
+                <OutputBlock key={index} block={block} />
+              ))}
+              {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap text-sm sm:text-base max-w-none leading-relaxed overflow-auto">
+              {messageContent}
+              {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
+            </div>
+          )}
         </div>
         
         {role === 'assistant' && (
@@ -149,17 +181,26 @@ export function ChatMessage({
         {hasImage && (
           <div className="mb-2">
             <img 
-              src={typeof content !== 'string' ? content.image : ''} 
+              src={getImageUrl() || ''} 
               alt="Uploaded image"
               className="rounded-md max-h-60 max-w-full object-contain"
             />
           </div>
         )}
         
-        <div className="whitespace-pre-wrap text-sm sm:text-base">
-          {messageContent}
-          {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
-        </div>
+        {parsedContent ? (
+          <div className="space-y-3">
+            {parsedContent.blocks.map((block, index) => (
+              <OutputBlock key={index} block={block} />
+            ))}
+            {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap text-sm sm:text-base leading-relaxed overflow-auto">
+            {messageContent}
+            {isStreaming && showCursor && <span className="animate-pulse">▋</span>}
+          </div>
+        )}
         
         <div className="text-xs opacity-70 mt-1 text-right">
           {formatTimestamp(timestamp)}
