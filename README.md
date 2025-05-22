@@ -31,9 +31,35 @@ This project consists of two main parts:
 
 1. Install the required Python packages:
 
-```bash
-pip install fastapi uvicorn litellm ollama pillow python-multipart
-```
+ It's recommended to use a virtual environment. You can use `uv` or Python's built-in `venv`.
+
+    **Using `uv` (recommended):**
+    ```bash
+    # Create the virtual environment (e.g., named .venv)
+    uv venv
+    # Activate the virtual environment
+    # On macOS and Linux:
+    source .venv/bin/activate
+    # On Windows:
+    # .venv\Scripts\activate
+    
+    # Install dependencies
+    uv pip install -r requirements.txt
+    ```
+
+    **Using `venv`:**
+    ```bash
+    # Create the virtual environment
+    python3 -m venv .venv
+    # Activate the virtual environment
+    # On macOS and Linux:
+    source .venv/bin/activate
+    # On Windows:
+    # .venv\Scripts\activate
+    
+    # Install dependencies
+    pip install -r requirements.txt
+    ```
 
 2. Start the backend server:
 
