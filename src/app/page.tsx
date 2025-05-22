@@ -3,14 +3,19 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { ModelSelector } from '@/components/ModelSelector';
+import { ModelSettings } from '@/components/ModelSettings';
 import { ChatInterface } from '@/components/ChatInterface';
-import { ModelSelection } from '@/types';
+import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
 
 export default function Home() {
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
   const [mobileView, setMobileView] = useState<'models' | 'chat'>('chat');
   const [isMobile, setIsMobile] = useState(false);
+  const [modelSettings, setModelSettings] = useState<ModelSettingsType>({
+    systemPrompt: '',
+    temperature: 0.7,
+  });
   
   // Check if we're on mobile once when component mounts
   useEffect(() => {
@@ -65,10 +70,23 @@ export default function Home() {
         <div className={`md:col-span-1 bg-card rounded-lg shadow-sm p-3 sm:p-4 border ${mobileView === 'models' ? 'block' : 'hidden md:block'}`}>
           <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Model Selection</h2>
           <ModelSelector onModelSelect={handleModelSelect} />
+          
+          <div className="mt-6">
+            <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">System Settings</h2>
+            <ModelSettings 
+              settings={modelSettings} 
+              onSettingsChange={setModelSettings} 
+              disabled={!modelSelection}
+            />
+          </div>
         </div>
 
         <div className={`md:col-span-3 bg-card rounded-lg shadow-sm p-3 sm:p-4 border ${mobileView === 'chat' ? 'block' : 'hidden md:block'}`}>
-          <ChatInterface selectedModel={modelSelection} />
+          <ChatInterface 
+            selectedModel={modelSelection} 
+            modelSettings={modelSettings}
+            onSettingsChange={setModelSettings}
+          />
         </div>
       </main>
 

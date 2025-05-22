@@ -1,25 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { ModelSettings } from '@/components/ModelSettings';
 import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType, MessageContent } from '@/types';
 import { createChatStream } from '@/lib/api';
 import { Trash2 } from 'lucide-react';
 
 interface ChatInterfaceProps {
   selectedModel: ModelSelection | null;
+  modelSettings: ModelSettingsType;
+  onSettingsChange: (settings: ModelSettingsType) => void;
 }
 
-export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
+export function ChatInterface({ selectedModel, modelSettings, onSettingsChange }: ChatInterfaceProps) {
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelSettings, setModelSettings] = useState<ModelSettingsType>({
-    systemPrompt: '',
-    temperature: 0.7,
-  });
   const streamingRef = useRef<{ close: () => void } | null>(null);
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -221,19 +217,6 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
           <span className="hidden sm:inline">Clear Chat</span>
         </Button>
       </div>
-
-      <Accordion type="single" collapsible className="mb-4">
-        <AccordionItem value="settings">
-          <AccordionTrigger>Settings</AccordionTrigger>
-          <AccordionContent>
-            <ModelSettings 
-              settings={modelSettings} 
-              onSettingsChange={setModelSettings} 
-              disabled={isLoading}
-            />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
 
       <div 
         ref={chatContainerRef}
