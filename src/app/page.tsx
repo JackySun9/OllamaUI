@@ -2,20 +2,23 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { ModelSelector } from '@/components/ModelSelector';
-import { ModelSettings } from '@/components/ModelSettings';
 import { ChatInterface } from '@/components/ChatInterface';
 import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
+import { Plus, User } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+// History component is already exported from ChatInterface
 
 export default function Home() {
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
-  const [mobileView, setMobileView] = useState<'models' | 'chat'>('chat');
+  const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('chat');
   const [isMobile, setIsMobile] = useState(false);
   const [modelSettings, setModelSettings] = useState<ModelSettingsType>({
     systemPrompt: '',
     temperature: 0.7,
   });
+  const [newChat, setNewChat] = useState(true);
   
   // Check if we're on mobile once when component mounts
   useEffect(() => {
@@ -29,72 +32,128 @@ export default function Home() {
     // Add resize listener
     window.addEventListener('resize', checkIfMobile);
     
+    // Create a listener for model selection events
+    const handleModelSelection = (event: CustomEvent<ModelSelection>) => {
+      setModelSelection(event.detail);
+    };
+    
+    window.addEventListener('model-selected', handleModelSelection as EventListener);
+    
     // Cleanup
-    return () => window.removeEventListener('resize', checkIfMobile);
+    return () => {
+      window.removeEventListener('resize', checkIfMobile);
+      window.removeEventListener('model-selected', handleModelSelection as EventListener);
+    };
   }, []);
   
-  // Handle model selection with useCallback to prevent recreation on each render
-  const handleModelSelect = useCallback((model: ModelSelection) => {
-    setModelSelection(model);
+  // Load the last selected model from localStorage
+  useEffect(() => {
+    const lastModelJson = localStorage.getItem('ollama-webui-last-model');
     
-    // Switch to chat view on mobile after model selection
+    if (lastModelJson) {
+      try {
+        const lastModel = JSON.parse(lastModelJson) as ModelSelection;
+        setModelSelection(lastModel);
+      } catch (e) {
+        console.error('Failed to parse last model selection:', e);
+      }
+    }
+  }, []);
+
+  // Handle starting a new chat
+  const handleNewChat = useCallback(() => {
+    setNewChat(true);
     if (isMobile) {
       setMobileView('chat');
     }
   }, [isMobile]);
 
+  // When chat loads, reset the new chat flag
+  const handleChatLoad = useCallback(() => {
+    setNewChat(false);
+  }, []);
+
+  // Remove the welcome screen conditional rendering and go directly to the chat interface
   return (
-    <div className="min-h-screen p-2 sm:p-4 md:p-8">
-      <header className="flex justify-between items-center mb-4 sm:mb-8">
-        <h1 className="text-xl sm:text-3xl font-bold">Ollama WebUI</h1>
-        <div className="flex items-center gap-2">
-          <div className="md:hidden flex gap-2">
-            <button 
-              onClick={() => setMobileView('models')}
-              className={`px-3 py-1 text-sm rounded-md ${mobileView === 'models' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`}
-            >
-              Models
-            </button>
-            <button 
-              onClick={() => setMobileView('chat')}
-              className={`px-3 py-1 text-sm rounded-md ${mobileView === 'chat' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`}
-            >
-              Chat
-            </button>
-          </div>
-          <ModeToggle />
-        </div>
-      </header>
-
-      <main className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
-        <div className={`md:col-span-1 bg-card rounded-lg shadow-sm p-3 sm:p-4 border ${mobileView === 'models' ? 'block' : 'hidden md:block'}`}>
-          <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Model Selection</h2>
-          <ModelSelector onModelSelect={handleModelSelect} />
+    <div className="flex flex-col h-screen bg-background">
+      {/* Mobile header */}
+      {isMobile && (
+        <header className="flex justify-between items-center border-b p-3">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setMobileView('sidebar')}
+            className={mobileView === 'chat' ? 'block' : 'hidden'}
+          >
+            <User size={20} />
+          </Button>
           
-          <div className="mt-6">
-            <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">System Settings</h2>
-            <ModelSettings 
-              settings={modelSettings} 
-              onSettingsChange={setModelSettings} 
-              disabled={!modelSelection}
-            />
+          <h1 className="text-lg font-semibold">Ollama WebUI</h1>
+          
+          <ModeToggle />
+        </header>
+      )}
+      
+      <div className="flex flex-1 h-full overflow-hidden">
+        {/* Sidebar */}
+        <aside className={`w-64 flex-shrink-0 border-r flex flex-col h-full bg-muted/30 ${
+          isMobile ? (mobileView === 'sidebar' ? 'block' : 'hidden') : 'block'
+        }`}>
+          <div className="p-3 flex flex-col h-full">
+            {/* New chat button */}
+            <Button 
+              onClick={handleNewChat}
+              className="mb-4 w-full justify-start"
+              variant="outline"
+            >
+              <Plus size={16} className="mr-2" />
+              New Chat
+            </Button>
+            
+            {/* Chat history will be handled by the ChatInterface */}
+            <div className="flex-1 mb-4 overflow-y-auto">
+              <h2 className="font-medium mb-2 text-sm">Chat History</h2>
+              <ChatInterface.History 
+                onSelectConversation={() => isMobile && setMobileView('chat')}
+                startNewChat={handleNewChat}
+              />
+            </div>
+            
+            {/* Footer */}
+            <div className="mt-auto border-t pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Ollama WebUI</span>
+                <ModeToggle />
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className={`md:col-span-3 bg-card rounded-lg shadow-sm p-3 sm:p-4 border ${mobileView === 'chat' ? 'block' : 'hidden md:block'}`}>
+        </aside>
+        
+        {/* Main chat area */}
+        <main className={`flex-1 flex flex-col h-full ${
+          isMobile ? (mobileView === 'chat' ? 'block' : 'hidden') : 'block'
+        }`}>
+          {isMobile && mobileView === 'chat' && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => setMobileView('sidebar')}
+              className="absolute top-14 left-3 z-10"
+            >
+              <User size={16} className="mr-1" />
+              <span className="text-xs">Menu</span>
+            </Button>
+          )}
+          
           <ChatInterface 
             selectedModel={modelSelection} 
             modelSettings={modelSettings}
             onSettingsChange={setModelSettings}
+            newChat={newChat}
+            onChatLoad={handleChatLoad}
           />
-        </div>
-      </main>
-
-      <footer className="mt-6 sm:mt-8 text-center text-xs sm:text-sm text-muted-foreground">
-        <p>
-          Ollama WebUI - Built with Next.js, Tailwind CSS, shadcn/ui, and TypeScript
-        </p>
-      </footer>
+        </main>
+      </div>
     </div>
   );
 }

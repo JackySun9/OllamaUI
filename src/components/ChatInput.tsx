@@ -1,19 +1,39 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, SendHorizontal, X } from 'lucide-react';
+import { Image, SendHorizontal, X, Bot } from 'lucide-react';
 import { imageToBase64 } from '@/lib/utils';
 
 interface ChatInputProps {
   onSendMessage: (text: string, imageBase64?: string) => void;
   isLoading?: boolean;
+  model?: string;
 }
 
-export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) {
+export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Focus management
+  useEffect(() => {
+    // Focus the textarea when component mounts
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, []);
+  
+  // Refocus textarea after loading completes (response finished)
+  useEffect(() => {
+    if (!isLoading && textareaRef.current) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
+    }
+  }, [isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +50,11 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
     setMessage('');
     setImageFile(null);
     setImagePreview(null);
+    
+    // Refocus the textarea after sending
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -63,6 +88,16 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
+      {/* Optional model badge */}
+      {model && (
+        <div className="flex items-center justify-center mb-2">
+          <div className="text-xs bg-muted px-2 py-1 rounded-full inline-flex items-center gap-1">
+            <Bot size={12} />
+            <span>{model}</span>
+          </div>
+        </div>
+      )}
+    
       {imagePreview && (
         <div className="relative mb-2 inline-block">
           <img 
@@ -84,11 +119,12 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
       
       <div className="flex gap-1 sm:gap-2">
         <Textarea
+          ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
-          className="min-h-[50px] resize-none text-sm sm:text-base p-2 sm:p-3"
+          placeholder={`Message ${model || ''}... (Press Enter to send, Shift+Enter for new line)`}
+          className="min-h-[50px] resize-none text-sm sm:text-base p-2 sm:p-3 rounded-xl"
           disabled={isLoading}
         />
         
@@ -99,7 +135,8 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
             size="icon"
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
-            className="h-10 w-10"
+            className="h-10 w-10 rounded-full"
+            title="Upload image"
           >
             <Image size={18} />
             <input
@@ -115,7 +152,8 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
             type="submit"
             disabled={(!message.trim() && !imageFile) || isLoading}
             size="icon"
-            className="h-10 w-10"
+            className="h-10 w-10 rounded-full"
+            title="Send message"
           >
             <SendHorizontal size={18} />
           </Button>

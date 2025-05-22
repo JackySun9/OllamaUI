@@ -1,5 +1,14 @@
 import { Provider, ChatRequest, ChatResponse } from '@/types';
 
+// Interface for raw API provider response (may have different field names)
+interface RawApiProvider {
+  id?: string;
+  name?: string;
+  key?: string;
+  display_name?: string;
+  [key: string]: unknown; // Allow for other unknown fields
+}
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 const API_TIMEOUT = 30000; // 30 seconds timeout
 
@@ -60,19 +69,41 @@ export const getProviders = async (): Promise<Provider[]> => {
     }
     
     const data = await response.json();
+    console.log('Raw API response data:', data);
+    
     if (!data.providers || !Array.isArray(data.providers) || data.providers.length === 0) {
       console.warn('Invalid or empty provider data received from API. Using fallback providers.');
       return fallbackProviders;
     }
     
+    console.log('Providers before filtering:', data.providers);
+    
     // Normalize provider IDs to ensure they match expected values
-    const normalizedProviders = data.providers.map((provider: Provider) => {
-      // Ensure provider.id is lowercase and trimmed
-      return {
-        ...provider,
-        id: provider.id.toLowerCase().trim()
-      };
-    });
+    const normalizedProviders = data.providers
+      .filter((provider: RawApiProvider) => {
+        const isValid = provider && (provider.id || provider.name) && 
+                       (typeof provider.id === 'string' || typeof provider.name === 'string');
+        if (!isValid) {
+          console.warn('Filtering out invalid provider:', provider);
+        }
+        return isValid;
+      })
+      .map((provider: RawApiProvider) => {
+        // Handle different possible structures
+        const id = provider.id || provider.name || provider.key || 'unknown';
+        const name = provider.name || provider.display_name || provider.id || 'Unknown Provider';
+        
+        return {
+          id: String(id).toLowerCase().trim(),
+          name: String(name).trim()
+        } as Provider;
+      });
+    
+    // If no valid providers after filtering, use fallback
+    if (normalizedProviders.length === 0) {
+      console.warn('No valid providers found after filtering. Using fallback providers.');
+      return fallbackProviders;
+    }
     
     return normalizedProviders;
   } catch (error) {

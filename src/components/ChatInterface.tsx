@@ -4,7 +4,8 @@ import { ChatInput } from '@/components/ChatInput';
 import { Button } from '@/components/ui/button';
 import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType, MessageContent } from '@/types';
 import { createChatStream } from '@/lib/api';
-import { Trash2, Eraser, History, ExternalLink, ArrowLeft } from 'lucide-react';
+import { Trash2, Eraser, ExternalLink } from 'lucide-react';
+import { ModelDropdown } from '@/components/ModelDropdown';
 
 // Storage key prefix for chat history
 const CHAT_HISTORY_STORAGE_PREFIX = 'ollama-webui-chat-history';
@@ -13,6 +14,13 @@ interface ChatInterfaceProps {
   selectedModel: ModelSelection | null;
   modelSettings: ModelSettingsType;
   onSettingsChange: (settings: ModelSettingsType) => void;
+  newChat?: boolean;
+  onChatLoad?: () => void;
+}
+
+export interface ChatHistoryProps {
+  onSelectConversation?: () => void;
+  startNewChat?: () => void;
 }
 
 interface StoredChatHistory extends ChatHistory {
@@ -27,19 +35,255 @@ interface ConversationMeta {
   messageCount: number;
 }
 
+// Separate History component for sidebar
+export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHistoryProps) {
+  const [pastConversations, setPastConversations] = useState<ConversationMeta[]>([]);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load all conversations across all models
+    loadAllConversations();
+    
+    // Get current conversation ID from localStorage
+    const allModels = getAllModels();
+    if (allModels.length > 0) {
+      for (const model of allModels) {
+        const currentId = localStorage.getItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${model}-current`);
+        if (currentId) {
+          setCurrentConversationId(currentId);
+          setSelectedModel(model);
+          break;
+        }
+      }
+    }
+  }, []);
+
+  // Get all models that have conversations
+  const getAllModels = (): string[] => {
+    const models = new Set<string>();
+    
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX)) {
+        // Extract model name from key
+        const parts = key.split('-');
+        if (parts.length >= 2) {
+          models.add(parts[1]);
+        }
+      }
+    }
+    
+    return Array.from(models);
+  };
+
+  // Load all conversations across models
+  const loadAllConversations = () => {
+    const conversations: ConversationMeta[] = [];
+    
+    // Find all keys that match any model's storage pattern
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      // Skip the "current" pointers
+      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX) && !key.endsWith('-current')) {
+        try {
+          const rawData = localStorage.getItem(key);
+          if (rawData) {
+            const chatData = JSON.parse(rawData) as StoredChatHistory[];
+            
+            if (chatData.length > 0) {
+              // Extract model and conversation ID from the key
+              const keyParts = key.split('-');
+              const modelString = keyParts[1];
+              const conversationId = keyParts.slice(2).join('-');
+              
+              // Find the newest timestamp
+              let latestTimestamp = 0;
+              for (const message of chatData) {
+                if (message.timestamp && message.timestamp > latestTimestamp) {
+                  latestTimestamp = message.timestamp;
+                }
+              }
+              
+              conversations.push({
+                id: `${modelString}-${conversationId}`,
+                title: getConversationTitle(chatData),
+                lastMessage: getLastMessage(chatData),
+                timestamp: latestTimestamp || Date.now(),
+                messageCount: chatData.length
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`Error loading conversation from ${key}:`, err);
+        }
+      }
+    }
+    
+    // Sort by timestamp, newest first
+    conversations.sort((a, b) => b.timestamp - a.timestamp);
+    setPastConversations(conversations);
+  };
+
+  // Extract title from conversation
+  const getConversationTitle = (history: ChatHistory[]): string => {
+    if (history.length === 0) return "Empty conversation";
+    
+    // Use the first user message as the title, truncating if needed
+    const firstMessage = typeof history[0].user.content === 'string' 
+      ? history[0].user.content 
+      : history[0].user.content.text;
+      
+    return firstMessage.length > 30
+      ? firstMessage.substring(0, 30) + '...'
+      : firstMessage;
+  };
+
+  // Get last message preview
+  const getLastMessage = (history: ChatHistory[]): string => {
+    if (history.length === 0) return "";
+    
+    const lastItem = history[history.length - 1];
+    const isAssistantMessage = lastItem.assistant && lastItem.assistant.content;
+    
+    if (isAssistantMessage) {
+      return typeof lastItem.assistant.content === 'string'
+        ? lastItem.assistant.content.substring(0, 40) + (lastItem.assistant.content.length > 40 ? '...' : '')
+        : '';
+    } else {
+      return typeof lastItem.user.content === 'string'
+        ? lastItem.user.content.substring(0, 40) + (lastItem.user.content.length > 40 ? '...' : '')
+        : lastItem.user.content.text.substring(0, 40) + (lastItem.user.content.text.length > 40 ? '...' : '');
+    }
+  };
+
+  // Handle conversation selection
+  const handleSelectConversation = (fullId: string) => {
+    // Extract model and conversation ID
+    const parts = fullId.split('-');
+    const modelString = parts[0];
+    const conversationId = parts.slice(1).join('-');
+    
+    // Set current conversation in localStorage
+    localStorage.setItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`, conversationId);
+    
+    // Trigger callback
+    if (onSelectConversation) {
+      onSelectConversation();
+    }
+    
+    // UI will refresh on next chatInterface mount
+    window.location.reload();
+  };
+
+  // Delete a conversation
+  const deleteConversation = (fullId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    
+    // Extract model and conversation ID
+    const parts = fullId.split('-');
+    const modelString = parts[0];
+    const conversationId = parts.slice(1).join('-');
+    
+    // Remove from localStorage
+    localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-${conversationId}`);
+    
+    // If this was the current conversation, handle accordingly
+    if (fullId === `${selectedModel}-${currentConversationId}`) {
+      // Clear current conversation pointer
+      localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`);
+    }
+    
+    // Refresh conversation list
+    loadAllConversations();
+  };
+
+  // Format timestamp
+  const formatTimestamp = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    
+    // Check if it's today
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return `Today`;
+    }
+    
+    // Check if it's yesterday
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Yesterday`;
+    }
+    
+    // Otherwise return date
+    return date.toLocaleDateString([], { 
+      month: 'short', 
+      day: 'numeric'
+    });
+  };
+
+  // We directly use startNewChat prop in our component
+
+  return (
+    <div className="flex flex-col space-y-2">
+      {pastConversations.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-3">
+          No saved conversations
+        </div>
+      ) : (
+        pastConversations.map(conversation => (
+          <div 
+            key={conversation.id} 
+            className={`p-2 rounded cursor-pointer hover:bg-muted text-sm flex items-center 
+                      ${conversation.id === `${selectedModel}-${currentConversationId}` ? 
+                        'bg-muted/70 border-l-4 border-primary pl-1.5' : ''}`}
+            onClick={() => handleSelectConversation(conversation.id)}
+          >
+            <div className="flex-1 overflow-hidden">
+              <div className="font-medium truncate">{conversation.title}</div>
+              <div className="flex justify-between items-center mt-0.5">
+                <span className="text-xs text-muted-foreground">{formatTimestamp(conversation.timestamp)}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100 -mr-1"
+                  onClick={(e) => deleteConversation(conversation.id, e)}
+                  title="Delete conversation"
+                >
+                  <Trash2 size={12} />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+      
+      {/* Add a new chat button at the bottom of the list */}
+      <Button 
+        variant="ghost" 
+        size="sm"
+        onClick={() => startNewChat && startNewChat()}
+        className="mt-2 w-full justify-center text-xs"
+      >
+        <ExternalLink size={12} className="mr-1" />
+        New Chat
+      </Button>
+    </div>
+  );
+}
+
+// Main ChatInterface component
 export function ChatInterface({ 
   selectedModel, 
   modelSettings, 
-  // Prefixing with underscore to indicate it's intentionally not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onSettingsChange: _onSettingsChange 
+  onSettingsChange,
+  newChat = false,
+  onChatLoad
 }: ChatInterfaceProps) {
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamingRef = useRef<{ close: () => void } | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-  const [pastConversations, setPastConversations] = useState<ConversationMeta[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -61,78 +305,48 @@ export function ChatInterface({
     return `conv-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   };
 
-  // Extract summary/title from conversation
-  const getConversationTitle = (history: ChatHistory[]): string => {
-    if (history.length === 0) return "Empty conversation";
-    
-    // Use the first user message as the title, truncating if needed
-    const firstMessage = typeof history[0].user.content === 'string' 
-      ? history[0].user.content 
-      : history[0].user.content.text;
-      
-    return firstMessage.length > 30
-      ? firstMessage.substring(0, 30) + '...'
-      : firstMessage;
-  };
-
-  // Get the last message from a conversation
-  const getLastMessage = (history: ChatHistory[]): string => {
-    if (history.length === 0) return "";
-    
-    const lastItem = history[history.length - 1];
-    const isAssistantMessage = lastItem.assistant && lastItem.assistant.content;
-    
-    if (isAssistantMessage) {
-      return typeof lastItem.assistant.content === 'string'
-        ? lastItem.assistant.content.substring(0, 40) + (lastItem.assistant.content.length > 40 ? '...' : '')
-        : '';
-    } else {
-      return typeof lastItem.user.content === 'string'
-        ? lastItem.user.content.substring(0, 40) + (lastItem.user.content.length > 40 ? '...' : '')
-        : lastItem.user.content.text.substring(0, 40) + (lastItem.user.content.text.length > 40 ? '...' : '');
-    }
-  };
-
-  // Load chat history from localStorage when model changes
+  // Load chat history from localStorage when model changes or newChat is triggered
   useEffect(() => {
     const storageKey = getStorageKey();
     if (!storageKey) return;
     
-    // Load current model's conversations
-    loadConversationsForModel();
-    
-    // Check if we have an active conversation going
-    const currentConvId = localStorage.getItem(`${storageKey}-current`);
-    
-    if (currentConvId) {
-      setCurrentConversationId(currentConvId);
-      const savedHistory = localStorage.getItem(`${storageKey}-${currentConvId}`);
+    if (newChat) {
+      // Start a new conversation
+      startNewConversation();
+      if (onChatLoad) onChatLoad();
+    } else {
+      // Check if we have an active conversation going
+      const currentConvId = localStorage.getItem(`${storageKey}-current`);
       
-      if (savedHistory) {
-        try {
-          const parsedHistory = JSON.parse(savedHistory);
-          if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-            // Remove timestamp property when loading history for UI display
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const displayHistory = parsedHistory.map(({ timestamp: _, ...item }: StoredChatHistory) => item as ChatHistory);
-            setChatHistory(displayHistory);
+      if (currentConvId) {
+        setCurrentConversationId(currentConvId);
+        const savedHistory = localStorage.getItem(`${storageKey}-${currentConvId}`);
+        
+        if (savedHistory) {
+          try {
+            const parsedHistory = JSON.parse(savedHistory);
+            if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+              // Remove timestamp property when loading history for UI display
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const displayHistory = parsedHistory.map(({ timestamp: _, ...item }: StoredChatHistory) => item as ChatHistory);
+              setChatHistory(displayHistory);
+            }
+          } catch (err) {
+            console.error('Failed to parse saved chat history:', err);
+            // If there's an error parsing, we'll just start with an empty history
+            setChatHistory([]);
           }
-        } catch (err) {
-          console.error('Failed to parse saved chat history:', err);
-          // If there's an error parsing, we'll just start with an empty history
+        } else {
           setChatHistory([]);
         }
       } else {
-        setChatHistory([]);
+        // No current conversation, start a new one
+        startNewConversation();
       }
-    } else {
-      // No current conversation, start a new one
-      const newId = generateConversationId();
-      setCurrentConversationId(newId);
-      localStorage.setItem(`${storageKey}-current`, newId);
-      setChatHistory([]);
+      
+      if (onChatLoad) onChatLoad();
     }
-  }, [selectedModel]);
+  }, [selectedModel, newChat]);
 
   // Save chat history to localStorage whenever it changes
   useEffect(() => {
@@ -150,102 +364,27 @@ export function ChatInterface({
       
       localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
       localStorage.setItem(`${storageKey}-current`, currentConversationId);
-      
-      // Update conversation list
-      loadConversationsForModel();
     } else if (chatHistory.length === 0 && currentConversationId) {
       // If chat was cleared but we want to keep the same conversation ID
       localStorage.removeItem(`${storageKey}-${currentConversationId}`);
-      
-      // Update conversation list
-      loadConversationsForModel();
     }
   }, [chatHistory, selectedModel, currentConversationId]);
 
-  // Load all conversations for the current model
-  const loadConversationsForModel = () => {
-    const storageKey = getStorageKey();
-    if (!storageKey) return;
-    
-    const conversations: ConversationMeta[] = [];
-    const prefix = `${storageKey}-`;
-    
-    // Find all keys that match this model's storage pattern
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      // Skip the "current" pointer
-      if (key && key.startsWith(prefix) && !key.endsWith('-current')) {
-        const conversationId = key.substring(prefix.length);
-        
-        try {
-          const rawData = localStorage.getItem(key);
-          if (rawData) {
-            const chatData = JSON.parse(rawData) as StoredChatHistory[];
-            
-            if (chatData.length > 0) {
-              // Find the newest timestamp
-              let latestTimestamp = 0;
-              for (const message of chatData) {
-                if (message.timestamp && message.timestamp > latestTimestamp) {
-                  latestTimestamp = message.timestamp;
-                }
-              }
-              
-              conversations.push({
-                id: conversationId,
-                title: getConversationTitle(chatData),
-                lastMessage: getLastMessage(chatData),
-                timestamp: latestTimestamp || Date.now(),
-                messageCount: chatData.length
-              });
-            }
-          }
-        } catch (err) {
-          console.error(`Error loading conversation ${conversationId}:`, err);
-        }
-      }
+  // Scroll to bottom of chat when history changes
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-    
-    // Sort by timestamp, newest first
-    conversations.sort((a, b) => b.timestamp - a.timestamp);
-    setPastConversations(conversations);
-  };
+  }, [chatHistory, isLoading]);
 
-  // Load a specific conversation
-  const loadConversation = (conversationId: string) => {
-    const storageKey = getStorageKey();
-    if (!storageKey) return;
-    
-    // If there's an active stream, close it
-    if (streamingRef.current) {
-      streamingRef.current.close();
-      streamingRef.current = null;
-      setIsLoading(false);
-    }
-    
-    // Load the selected conversation
-    const savedHistory = localStorage.getItem(`${storageKey}-${conversationId}`);
-    if (savedHistory) {
-      try {
-        const parsedHistory = JSON.parse(savedHistory);
-        if (Array.isArray(parsedHistory)) {
-          // Remove timestamp property when loading history for UI display
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const displayHistory = parsedHistory.map(({ timestamp, ...item }: StoredChatHistory) => item as ChatHistory);
-          setChatHistory(displayHistory);
-          setCurrentConversationId(conversationId);
-          localStorage.setItem(`${storageKey}-current`, conversationId);
-          setError(null);
-        }
-      } catch (err) {
-        console.error('Failed to load conversation:', err);
-        setError('Failed to load conversation');
+  // Cleanup streaming on unmount
+  useEffect(() => {
+    return () => {
+      if (streamingRef.current) {
+        streamingRef.current.close();
       }
-    }
-    
-    // Close the history panel
-    setShowHistory(false);
-  };
+    };
+  }, []);
 
   // Start a new conversation
   const startNewConversation = () => {
@@ -269,48 +408,12 @@ export function ChatInterface({
     // Clear the chat history
     setChatHistory([]);
     setError(null);
-    setShowHistory(false);
   };
-
-  // Delete a specific conversation
-  const deleteConversation = (conversationId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent triggering loadConversation
-    
-    const storageKey = getStorageKey();
-    if (!storageKey) return;
-    
-    // Remove the conversation from localStorage
-    localStorage.removeItem(`${storageKey}-${conversationId}`);
-    
-    // If this was the current conversation, start a new one
-    if (conversationId === currentConversationId) {
-      startNewConversation();
-    }
-    
-    // Update the conversation list
-    loadConversationsForModel();
-  };
-
-  // Scroll to bottom of chat when history changes
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [chatHistory, isLoading]);
-
-  // Cleanup streaming on unmount
-  useEffect(() => {
-    return () => {
-      if (streamingRef.current) {
-        streamingRef.current.close();
-      }
-    };
-  }, []);
 
   const handleSendMessage = async (text: string, imageBase64?: string) => {
     if (!text.trim() && !imageBase64) return;
     if (!selectedModel) {
-      setError('Please select a model first');
+      setError('Please select a model from the dropdown in the top-right corner');
       return;
     }
 
@@ -463,6 +566,7 @@ export function ChatInterface({
     }
   };
 
+  // Clear chat and start new conversation
   const clearChat = () => {
     // Close any active stream
     if (streamingRef.current) {
@@ -470,12 +574,16 @@ export function ChatInterface({
       streamingRef.current = null;
     }
     
-    // Start a new conversation instead of just clearing
+    // Start a new conversation
     startNewConversation();
   };
 
   // Function to clear all chat histories across all models
   const clearAllChatHistories = () => {
+    if (!window.confirm('Are you sure you want to clear all chat history across all models?')) {
+      return;
+    }
+    
     // Filter localStorage keys to find all chat histories
     const keys = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -490,171 +598,104 @@ export function ChatInterface({
     
     // Start a new conversation
     startNewConversation();
-    
-    // Clear the conversations list
-    setPastConversations([]);
-  };
-
-  // Format timestamp to readable date
-  const formatTimestamp = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    
-    // Check if it's today
-    const today = new Date();
-    if (date.toDateString() === today.toDateString()) {
-      return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    
-    // Check if it's yesterday
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    
-    // Otherwise return full date
-    return date.toLocaleDateString([], { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   };
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold">Chat</h2>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-1"
-            title="View history"
-          >
-            <History size={16} />
-            <span className="hidden sm:inline">History</span>
-          </Button>
-        </div>
-        
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={clearChat}
-            title="Start new chat"
-            disabled={isLoading}
-          >
-            <ExternalLink size={14} className="mr-1" />
-            <span className="hidden sm:inline">New Chat</span>
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => {
-              if (window.confirm('Are you sure you want to clear all chat history?')) {
-                clearAllChatHistories();
-              }
-            }}
-            disabled={isLoading}
-            title="Clear history across all models"
-          >
-            <Eraser size={14} className="mr-1" />
-            <span className="hidden sm:inline">Clear All</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* History Panel */}
-      {showHistory && (
-        <div className="mb-4 p-3 border rounded-md bg-card">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-medium">Chat History</h3>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setShowHistory(false)}
-            >
-              <ArrowLeft size={14} />
-              <span className="ml-1">Close</span>
-            </Button>
-          </div>
-          
-          {pastConversations.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-3">
-              No saved conversations found
-            </div>
-          ) : (
-            <div className="overflow-y-auto max-h-[300px] space-y-2">
-              {pastConversations.map(conversation => (
-                <div 
-                  key={conversation.id} 
-                  className={`p-2 rounded cursor-pointer hover:bg-muted text-sm ${
-                    conversation.id === currentConversationId ? 'bg-muted border border-muted-foreground/20' : ''
-                  }`}
-                  onClick={() => loadConversation(conversation.id)}
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <div className="font-medium truncate flex-1">{conversation.title}</div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 ml-1"
-                      onClick={(e) => deleteConversation(conversation.id, e)}
-                      title="Delete conversation"
-                    >
-                      <Trash2 size={12} />
-                    </Button>
-                  </div>
-                  
-                  <div className="text-xs text-muted-foreground truncate">{conversation.lastMessage}</div>
-                  
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-muted-foreground">{formatTimestamp(conversation.timestamp)}</span>
-                    <span className="text-xs bg-muted-foreground/20 px-1.5 py-0.5 rounded-full">
-                      {conversation.messageCount} msgs
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="w-full mt-3"
-            onClick={startNewConversation}
-          >
-            <ExternalLink size={14} className="mr-1" />
-            Start New Conversation
-          </Button>
+      {/* Empty state title - Only show when no header */}
+      {false && chatHistory.length === 0 && !isLoading && (
+        <div className="text-center pt-6 pb-2">
+          <h2 className="text-xl font-semibold">Ollama Chat</h2>
+          <p className="text-sm text-muted-foreground mt-1">Start a conversation with your selected model</p>
         </div>
       )}
-
+      
+      {/* Model selection in header - Always visible */}
+      <div className="sticky top-0 z-10 flex justify-between items-center px-4 py-3 border-b bg-background/80 backdrop-blur-sm">
+        <div className="flex-1">
+          {chatHistory.length === 0 && !isLoading ? (
+            <div className="text-lg font-semibold">Ollama Chat</div>
+          ) : (
+            <div className="text-sm font-medium text-muted-foreground">Chat</div>
+          )}
+        </div>
+        <ModelDropdown 
+          selectedModel={selectedModel}
+          onModelSelect={(model) => {
+            // Save the selection to localStorage
+            localStorage.setItem('ollama-webui-last-model', JSON.stringify(model));
+            
+            // Dispatch an event to update the parent component
+            window.dispatchEvent(new CustomEvent('model-selected', { 
+              detail: model 
+            }));
+            
+            // No immediate reload - let the UI update naturally
+          }}
+          modelSettings={modelSettings}
+          onSettingsChange={onSettingsChange}
+        />
+      </div>
+      
+      {/* Chat container */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto mb-4 p-2 sm:p-4 border rounded-md space-y-4 min-h-[300px] max-h-[calc(100vh-300px)] sm:max-h-[500px]"
+        className="flex-1 overflow-y-auto px-2 py-4 md:px-4 space-y-6 scrollbar-thin"
       >
-        {chatHistory.length === 0 ? (
-          <div className="text-center text-muted-foreground h-full flex items-center justify-center">
-            <p>Start a conversation by sending a message</p>
+        {!selectedModel ? (
+          <div className="h-full flex flex-col items-center justify-center opacity-80 px-4">
+            <div className="max-w-md text-center mb-8">
+              <h2 className="text-xl font-semibold mb-2">Select a Model to Start</h2>
+              <p className="text-muted-foreground mb-6">
+                Click the model selector in the top-right to choose a model and begin chatting.
+              </p>
+              <div className="animate-bounce text-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto">
+                  <path d="M12 19V5"></path>
+                  <path d="m5 12 7-7 7 7"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+        ) : chatHistory.length === 0 && !isLoading ? (
+          <div className="h-full flex flex-col items-center justify-center opacity-50 px-4">
+            <p className="text-center mb-4">No messages yet</p>
+            <div className="grid grid-cols-2 gap-4 max-w-2xl w-full">
+              <div className="col-span-2 text-sm text-center text-muted-foreground mb-2">
+                Suggested prompts:
+              </div>
+              {[
+                "Explain quantum computing in simple terms",
+                "Write a short story about a robot learning to love",
+                "How do I make a delicious chocolate cake?",
+                "Create a Python function to calculate prime numbers"
+              ].map((prompt, idx) => (
+                <Button 
+                  key={idx} 
+                  variant="outline"
+                  className="h-auto py-2 px-3 text-sm text-left normal-case"
+                  onClick={() => handleSendMessage(prompt)}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
           </div>
         ) : (
           <>
             {chatHistory.map((chat, index) => (
-              <React.Fragment key={index}>
+              <div key={index} className="space-y-6">
                 <ChatMessage 
                   role="user" 
                   content={chat.user.content} 
+                  style="modern"
                 />
                 {(chat.assistant.content !== undefined && chat.assistant.content !== '') ? (
                   <ChatMessage 
                     role="assistant" 
                     content={chat.assistant.content} 
                     isStreaming={index === chatHistory.length - 1 && isLoading}
+                    style="modern"
                   />
                 ) : (
                   index === chatHistory.length - 1 && isLoading && (
@@ -662,27 +703,55 @@ export function ChatInterface({
                       role="assistant"
                       content=""
                       isLoading={true}
+                      style="modern"
                     />
                   )
                 )}
-              </React.Fragment>
+              </div>
             ))}
           </>
         )}
       </div>
 
       {error && (
-        <div className="mb-4 p-2 bg-destructive/10 border border-destructive text-destructive text-sm rounded">
+        <div className="mx-4 mb-4 p-2 bg-destructive/10 border border-destructive text-destructive text-sm rounded">
           {error}
         </div>
       )}
 
-      <div className="mt-auto">
+      {/* Input area */}
+      <div className="border-t p-4">
         <ChatInput 
           onSendMessage={handleSendMessage} 
           isLoading={isLoading} 
+          model={selectedModel?.model || 'unknown'}
         />
+        
+        <div className="mt-2 flex justify-between items-center px-2">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={clearChat}
+            className="text-xs text-muted-foreground"
+          >
+            <ExternalLink size={12} className="mr-1" />
+            New chat
+          </Button>
+          
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={clearAllChatHistories}
+            className="text-xs text-muted-foreground"
+          >
+            <Eraser size={12} className="mr-1" />
+            Clear all history
+          </Button>
+        </div>
       </div>
     </div>
   );
 } 
+
+// Add History to the ChatInterface object
+ChatInterface.History = HistoryComponent; 

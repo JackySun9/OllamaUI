@@ -19,18 +19,28 @@ interface ModelSelectorProps {
   onModelSelect: (modelSelection: ModelSelection) => void;
   defaultProvider?: string;
   defaultModel?: string;
+  currentModel?: ModelSelection | null;
+  compact?: boolean;
 }
 
 export function ModelSelector({ 
   onModelSelect, 
   defaultProvider = 'ollama',
-  defaultModel = ''
+  defaultModel = '',
+  currentModel = null,
+  compact = false
 }: ModelSelectorProps) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<string[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider);
-  const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
-  const [manualModel, setManualModel] = useState<string>('');
+  const [selectedProvider, setSelectedProvider] = useState<string>(
+    currentModel?.provider || defaultProvider
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(
+    currentModel?.model || defaultModel
+  );
+  const [manualModel, setManualModel] = useState<string>(
+    currentModel?.manualModelString || ''
+  );
   const [loading, setLoading] = useState<boolean>(false);
   const [providersLoading, setProvidersLoading] = useState<boolean>(true);
   const [modelsLoading, setModelsLoading] = useState<boolean>(false);
@@ -130,11 +140,14 @@ export function ModelSelector({
 
   // Notify parent when selection changes
   useEffect(() => {
-    if (manualModel) {
+    // Only notify if we have a valid provider
+    if (!selectedProvider) return;
+    
+    if (manualModel.trim()) {
       onModelSelect({
         provider: selectedProvider,
         model: '',
-        manualModelString: manualModel
+        manualModelString: manualModel.trim()
       });
     } else if (selectedModel) {
       onModelSelect({
@@ -143,7 +156,7 @@ export function ModelSelector({
         manualModelString: undefined
       });
     }
-  }, [selectedProvider, selectedModel, manualModel, onModelSelect]);
+  }, [selectedProvider, selectedModel, manualModel]); // Removed onModelSelect from deps
 
   const refreshOllamaModels = async () => {
     if (selectedProvider !== 'ollama') return;
@@ -167,12 +180,12 @@ export function ModelSelector({
   };
 
   return (
-    <div className="space-y-4">
+    <div className={`${compact ? 'space-y-2' : 'space-y-4'}`}>
       {providersLoading ? (
         <SelectSkeleton />
       ) : (
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Provider</label>
+        <div className="space-y-1">
+          {!compact && <label className="text-sm font-medium">Provider</label>}
           <Select
             value={selectedProvider}
             onValueChange={setSelectedProvider}
@@ -195,18 +208,19 @@ export function ModelSelector({
       {modelsLoading ? (
         <SelectSkeleton />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Model</label>
+            {!compact && <label className="text-sm font-medium">Model</label>}
             {selectedProvider === 'ollama' && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={refreshOllamaModels}
                 disabled={loading}
+                className={compact ? 'h-7 px-2 text-xs' : ''}
               >
-                <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
-                <span className="ml-1">Refresh</span>
+                <RefreshCcw size={compact ? 12 : 14} className={loading ? 'animate-spin' : ''} />
+                <span className="ml-1">{compact ? 'Refresh' : 'Refresh'}</span>
               </Button>
             )}
           </div>
@@ -229,18 +243,20 @@ export function ModelSelector({
         </div>
       )}
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Manual Model String (optional)</label>
-        <Input
-          value={manualModel}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualModel(e.target.value)}
-          placeholder="e.g., openrouter/google/gemini-pro"
-          disabled={loading}
-        />
-        <p className="text-xs text-muted-foreground">
-          Enter a specific model string if not listed above. Will override dropdown selection.
-        </p>
-      </div>
+      {!compact && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Manual Model String (optional)</label>
+          <Input
+            value={manualModel}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualModel(e.target.value)}
+            placeholder="e.g., openrouter/google/gemini-pro"
+            disabled={loading}
+          />
+          <p className="text-xs text-muted-foreground">
+            Enter a specific model string if not listed above. Will override dropdown selection.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="text-sm text-destructive">{error}</div>
