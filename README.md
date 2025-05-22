@@ -64,7 +64,7 @@ This project consists of two main parts:
 2. Start the backend server:
 
 ```bash
-python api.py
+python server.py
 ```
 
 The backend will run on http://localhost:8000.
@@ -113,7 +113,7 @@ npm run build
 2. For the backend, consider using a production ASGI server:
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
 ## Contributing

@@ -2,15 +2,32 @@ import React from 'react';
 import { formatTimestamp } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string | { text: string; image?: string };
   timestamp?: Date;
+  isLoading?: boolean;
 }
 
-export function ChatMessage({ role, content, timestamp = new Date() }: ChatMessageProps) {
+export function ChatMessage({ role, content, timestamp = new Date(), isLoading = false }: ChatMessageProps) {
   const [copied, setCopied] = React.useState(false);
+  
+  const isUser = role === 'user';
+  
+  // Handle loading state with skeleton
+  if (isLoading && !isUser) {
+    return (
+      <div className={`flex justify-start`}>
+        <div className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground max-w-[80%] space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+      </div>
+    );
+  }
   
   const messageContent = typeof content === 'string' ? content : content.text;
   const hasImage = typeof content !== 'string' && content.image;
@@ -22,10 +39,10 @@ export function ChatMessage({ role, content, timestamp = new Date() }: ChatMessa
   };
   
   return (
-    <div className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div 
         className={`relative px-4 py-2 rounded-lg max-w-[80%] ${
-          role === 'user' 
+          isUser 
             ? 'bg-primary text-primary-foreground' 
             : 'bg-secondary text-secondary-foreground'
         }`}

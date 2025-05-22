@@ -4,7 +4,7 @@ import { ChatInput } from '@/components/ChatInput';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ModelSettings } from '@/components/ModelSettings';
-import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
+import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType, MessageContent } from '@/types';
 import { sendChatMessage } from '@/lib/api';
 import { Trash2 } from 'lucide-react';
 
@@ -28,7 +28,7 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [chatHistory]);
+  }, [chatHistory, isLoading]);
 
   const handleSendMessage = async (text: string, imageBase64?: string) => {
     if (!text.trim() && !imageBase64) return;
@@ -58,17 +58,22 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
       const messages = [
         ...(modelSettings.systemPrompt ? [{ role: 'system' as const, content: modelSettings.systemPrompt }] : []),
         ...chatHistory.flatMap((item: ChatHistory) => {
-          let userMessageContent: string | any[] = [];
+          let userMessageContent: string | MessageContent[] = [];
           if (typeof item.user.content === 'string') {
             userMessageContent = item.user.content;
           } else {
-            userMessageContent.push({ type: 'text', text: item.user.content.text });
-            if (item.user.content.image) {
-              userMessageContent.push({ type: 'image_url', image_url: { url: item.user.content.image } });
-            }
+            userMessageContent = [
+              { type: 'text' as const, text: item.user.content.text },
+              ...(item.user.content.image 
+                ? [{ 
+                    type: 'image_url' as const, 
+                    image_url: { url: item.user.content.image } 
+                  } as MessageContent] 
+                : [])
+            ];
           }
           
-          const turn: {role: 'user' | 'assistant', content: string | any[]}[] = [
+          const turn: {role: 'user' | 'assistant', content: string | MessageContent[]}[] = [
             { role: 'user' as const, content: userMessageContent },
           ];
           if (item.assistant.content) {
@@ -80,8 +85,8 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
           role: 'user' as const,
           content: imageBase64
             ? [
-                { type: 'text', text },
-                { type: 'image_url', image_url: { url: imageBase64 } }
+                { type: 'text' as const, text },
+                { type: 'image_url' as const, image_url: { url: imageBase64 } }
               ]
             : text
         }
@@ -165,32 +170,30 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
             <p>Start a conversation by sending a message</p>
           </div>
         ) : (
-          chatHistory.map((chat, index) => (
-            <React.Fragment key={index}>
-              <ChatMessage 
-                role="user" 
-                content={chat.user.content} 
-              />
-              {chat.assistant.content && (
+          <>
+            {chatHistory.map((chat, index) => (
+              <React.Fragment key={index}>
                 <ChatMessage 
-                  role="assistant" 
-                  content={chat.assistant.content} 
+                  role="user" 
+                  content={chat.user.content} 
                 />
-              )}
-            </React.Fragment>
-          ))
-        )}
-        
-        {isLoading && (
-          <div className="flex justify-start mb-4">
-            <div className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-current rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
-              </div>
-            </div>
-          </div>
+                {chat.assistant.content ? (
+                  <ChatMessage 
+                    role="assistant" 
+                    content={chat.assistant.content} 
+                  />
+                ) : (
+                  index === chatHistory.length - 1 && isLoading && (
+                    <ChatMessage 
+                      role="assistant"
+                      content=""
+                      isLoading={true}
+                    />
+                  )
+                )}
+              </React.Fragment>
+            ))}
+          </>
         )}
       </div>
 
