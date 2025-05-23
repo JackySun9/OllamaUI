@@ -3,6 +3,7 @@ import { OutputBlock as OutputBlockType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, Play, Terminal, Code, FileText, Hash, Table, Calculator, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RichMarkdown } from './RichMarkdown';
 
 interface OutputBlockProps {
   block: OutputBlockType;
@@ -243,13 +244,83 @@ export function OutputBlock({ block, className }: OutputBlockProps) {
           </div>
         );
 
+      case 'markdown':
+        const shouldTruncateMarkdown = isLongContent && !isExpanded;
+        const displayMarkdownContent = shouldTruncateMarkdown 
+          ? block.content.substring(0, 1000) + '...'
+          : block.content;
+          
+        return (
+          <div>
+            <RichMarkdown 
+              content={displayMarkdownContent} 
+              className="overflow-auto max-h-96" 
+            />
+            {isLongContent && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="mt-2 text-xs"
+              >
+                {isExpanded ? (
+                  <>
+                    <ChevronUp size={14} className="mr-1" />
+                    Show Less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} className="mr-1" />
+                    Show More
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        );
+
       case 'text':
       default:
         const shouldTruncate = isLongContent && !isExpanded;
         const displayContent = shouldTruncate 
           ? block.content.substring(0, 1000) + '...'
           : block.content;
-          
+        
+        // Try to detect if the text content looks like markdown
+        const looksLikeMarkdown = /^#{1,6}\s|^\*\s|^\d+\.\s|^\[.*\]\(.*\)|^\|.*\||```|`.*`|\*\*.*\*\*|\*.*\*/.test(block.content);
+        
+        if (looksLikeMarkdown) {
+          return (
+            <div>
+              <RichMarkdown 
+                content={displayContent} 
+                className="overflow-auto max-h-96" 
+              />
+              {isLongContent && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="mt-2 text-xs"
+                >
+                  {isExpanded ? (
+                    <>
+                      <ChevronUp size={14} className="mr-1" />
+                      Show Less
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={14} className="mr-1" />
+                      Show More
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          );
+        }
+        
+        // Fallback to plain text rendering
         return (
           <div className="prose prose-sm max-w-none">
             <div className="whitespace-pre-wrap leading-relaxed overflow-auto max-h-96">

@@ -150,3 +150,146 @@
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: hsl(var(--muted-foreground) / 0.5);
 }
+
+/* Enhanced styles for markdown content */
+.prose {
+  color: hsl(var(--foreground));
+}
+
+.prose strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.prose em {
+  color: hsl(var(--foreground));
+}
+
+.prose code {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--muted) / 0.6);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.2rem 0.4rem;
+  font-size: 0.875rem;
+}
+
+.prose pre {
+  background-color: hsl(var(--muted) / 0.3);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Syntax highlighting adjustments for theme compatibility */
+.prose .token.comment,
+.prose .token.prolog,
+.prose .token.doctype,
+.prose .token.cdata {
+  color: hsl(var(--muted-foreground));
+}
+
+.prose .token.punctuation {
+  color: hsl(var(--foreground) / 0.7);
+}
+
+.prose .token.property,
+.prose .token.tag,
+.prose .token.boolean,
+.prose .token.number,
+.prose .token.constant,
+.prose .token.symbol,
+.prose .token.deleted {
+  color: hsl(var(--primary));
+}
+
+.prose .token.selector,
+.prose .token.attr-name,
+.prose .token.string,
+.prose .token.char,
+.prose .token.builtin,
+.prose .token.inserted {
+  color: hsl(var(--primary) / 0.8);
+}
+
+.prose .token.operator,
+.prose .token.entity,
+.prose .token.url,
+.prose .language-css .token.string,
+.prose .style .token.string {
+  color: hsl(var(--foreground) / 0.8);
+}
+
+.prose .token.atrule,
+.prose .token.attr-value,
+.prose .token.keyword {
+  color: hsl(var(--primary) / 0.9);
+}
+
+.prose .token.function,
+.prose .token.class-name {
+  color: hsl(var(--primary) / 0.7);
+}
+
+.prose .token.regex,
+.prose .token.important,
+.prose .token.variable {
+  color: hsl(var(--primary) / 0.6);
+}
+
+/* Math formula styling */
+.katex {
+  color: hsl(var(--foreground)) !important;
+}
+
+.katex .katex-mathml {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Table enhancements */
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose table th,
+.prose table td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.prose table th {
+  background-color: hsl(var(--muted) / 0.5);
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.prose table tr:nth-child(even) {
+  background-color: hsl(var(--muted) / 0.2);
+}
+
+.prose table tr:hover {
+  background-color: hsl(var(--muted) / 0.4);
+}
+
+/* Blockquote styling */
+.prose blockquote {
+  border-left: 4px solid hsl(var(--primary) / 0.3);
+  background-color: hsl(var(--muted) / 0.3);
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.prose blockquote p {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+}

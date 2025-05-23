@@ -5,8 +5,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { ChatInterface } from '@/components/ChatInterface';
 import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Plus, User } from 'lucide-react';
+import { Plus, User, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import Link from 'next/link';
 
 // History component is already exported from ChatInterface
 
@@ -109,6 +110,17 @@ export default function Home() {
               <Plus size={16} className="mr-2" />
               New Chat
             </Button>
+            
+            {/* Markdown Demo Link */}
+            <Link href="/markdown-demo" className="mb-4">
+              <Button 
+                className="w-full justify-start"
+                variant="ghost"
+              >
+                <FileText size={16} className="mr-2" />
+                Markdown Demo
+              </Button>
+            </Link>
             
             {/* Chat history will be handled by the ChatInterface */}
             <div className="flex-1 mb-4 overflow-y-auto">
