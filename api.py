@@ -177,7 +177,19 @@ class ChatResponse(BaseModel):
 # --- API Endpoints ---
 @app.get("/api/providers")
 async def get_providers():
-    return {"providers": list(PREDEFINED_PROVIDERS.keys())}
+    providers = []
+    for provider_key in PREDEFINED_PROVIDERS.keys():
+        # Create provider object with id and name
+        provider_name = provider_key.title()  # Capitalize first letter
+        if provider_key == "openrouter":
+            provider_name = "OpenRouter"
+        elif provider_key == "openai":
+            provider_name = "OpenAI"
+        providers.append({
+            "id": provider_key,
+            "name": provider_name
+        })
+    return {"providers": providers}
 
 @app.get("/api/models/{provider}")
 async def get_provider_models(provider: str):

@@ -18,12 +18,41 @@ This project consists of two main parts:
 - 🖼️ Image upload capability for multimodal models
 - 🔄 Dynamic model loading from Ollama
 - ⚙️ Customizable system prompts and temperature settings
+- 🎤 **Voice Input Support** - Speak your messages with real-time transcription
+- 🌍 **Multi-language Voice Recognition** - Support for 25+ languages
+- 🔒 **Privacy-focused** - Voice processing happens locally in your browser
+
+## Voice Input
+
+### Features
+- **Real-time Speech Recognition**: Speak naturally and see your words appear instantly
+- **Multi-language Support**: Choose from 25+ languages including English, Spanish, French, German, Chinese, Japanese, and more
+- **Browser-based Processing**: No external services required - everything happens locally
+- **Visual Feedback**: Clear indicators showing recording status and progress
+- **Seamless Integration**: Works alongside text input and image uploads
+
+### Supported Browsers
+- ✅ Chrome (recommended)
+- ✅ Microsoft Edge  
+- ✅ Safari (macOS/iOS)
+- ✅ Opera
+- ⚠️ Firefox (limited support)
+
+### How to Use
+1. Look for the microphone icon (🎤) next to the send button
+2. Click it to start recording your voice
+3. Speak clearly - your speech will be transcribed in real-time
+4. Click again to stop recording
+5. Edit the transcribed text if needed and send
+
+For detailed instructions, see [VOICE_INPUT_GUIDE.md](./VOICE_INPUT_GUIDE.md).
 
 ## Prerequisites
 
 - Node.js (v18 or newer)
 - Python (v3.8 or newer)
 - Ollama installed (for local models)
+- Microphone access (for voice input feature)
 
 ## Installation
 
@@ -99,6 +128,7 @@ To use external providers like OpenAI, Anthropic, etc., set your API keys as env
 - The backend code is largely adapted from the original Gradio UI.
 - The frontend code is designed with component-based architecture using shadcn/ui.
 - WebSocket is used for streaming responses for a responsive chat experience.
+- Voice input uses the Web Speech API for local, privacy-focused speech recognition.
 
 ## Deployment
 

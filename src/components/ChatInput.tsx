@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Image, SendHorizontal, X, Bot } from 'lucide-react';
 import { imageToBase64 } from '@/lib/utils';
+import { VoiceInputButton } from './VoiceInputButton';
+import { VoiceLanguageSelector } from './VoiceLanguageSelector';
 
 interface ChatInputProps {
   onSendMessage: (text: string, imageBase64?: string) => void;
@@ -14,6 +16,8 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [voiceLanguage, setVoiceLanguage] = useState('en-US');
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -86,6 +90,20 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
     }
   };
 
+  // Handle voice input transcript
+  const handleVoiceTranscript = (transcript: string, append: boolean = false) => {
+    if (append) {
+      setMessage(prev => prev + ' ' + transcript);
+    } else {
+      setMessage(transcript);
+    }
+    
+    // Focus the textarea to show the user where the text was added
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 100);
+  };
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       {/* Optional model badge */}
@@ -95,6 +113,16 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
             <Bot size={12} />
             <span>{model}</span>
           </div>
+        </div>
+      )}
+
+      {/* Voice language selector */}
+      {showLanguageSelector && (
+        <div className="mb-2 flex justify-center">
+          <VoiceLanguageSelector
+            value={voiceLanguage}
+            onChange={setVoiceLanguage}
+          />
         </div>
       )}
     
@@ -129,6 +157,12 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
         />
         
         <div className="flex flex-col gap-1 sm:gap-2">
+          <VoiceInputButton
+            onTranscript={handleVoiceTranscript}
+            disabled={isLoading}
+            language={voiceLanguage}
+          />
+          
           <Button
             type="button"
             variant="outline"
@@ -158,6 +192,19 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
             <SendHorizontal size={18} />
           </Button>
         </div>
+      </div>
+
+      {/* Voice settings toggle */}
+      <div className="flex justify-center mt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowLanguageSelector(!showLanguageSelector)}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Voice Settings
+        </Button>
       </div>
     </form>
   );

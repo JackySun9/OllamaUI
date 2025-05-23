@@ -52,9 +52,8 @@ const handleApiError = async (response: Response, context: string): Promise<neve
 
 export const getProviders = async (): Promise<Provider[]> => {
   // Define fallback providers to use if API call fails
-  // Ensure provider IDs match exactly what the app expects
   const fallbackProviders: Provider[] = [
-    { id: 'ollama', name: 'Ollama' },         // ID must match 'ollama' exactly
+    { id: 'ollama', name: 'Ollama' },
     { id: 'openai', name: 'OpenAI' },
     { id: 'anthropic', name: 'Anthropic' },
     { id: 'openrouter', name: 'OpenRouter' },
@@ -76,38 +75,22 @@ export const getProviders = async (): Promise<Provider[]> => {
       return fallbackProviders;
     }
     
-    console.log('Providers before filtering:', data.providers);
+    // Validate that providers have the expected structure
+    const validProviders = data.providers.filter((provider: any) => 
+      provider && 
+      typeof provider.id === 'string' && 
+      typeof provider.name === 'string' &&
+      provider.id.trim() !== '' &&
+      provider.name.trim() !== ''
+    );
     
-    // Normalize provider IDs to ensure they match expected values
-    const normalizedProviders = data.providers
-      .filter((provider: RawApiProvider) => {
-        const isValid = provider && (provider.id || provider.name) && 
-                       (typeof provider.id === 'string' || typeof provider.name === 'string');
-        if (!isValid) {
-          console.warn('Filtering out invalid provider:', provider);
-        }
-        return isValid;
-      })
-      .map((provider: RawApiProvider) => {
-        // Handle different possible structures
-        const id = provider.id || provider.name || provider.key || 'unknown';
-        const name = provider.name || provider.display_name || provider.id || 'Unknown Provider';
-        
-        return {
-          id: String(id).toLowerCase().trim(),
-          name: String(name).trim()
-        } as Provider;
-      });
-    
-    // If no valid providers after filtering, use fallback
-    if (normalizedProviders.length === 0) {
-      console.warn('No valid providers found after filtering. Using fallback providers.');
+    if (validProviders.length === 0) {
+      console.warn('No valid providers found after validation. Using fallback providers.');
       return fallbackProviders;
     }
     
-    return normalizedProviders;
+    return validProviders;
   } catch (error) {
-    // Wrap other errors (like network errors) and use fallback providers
     if (error instanceof Error) {
       console.error(`Provider fetch error: ${error.message}`);
     } else {
