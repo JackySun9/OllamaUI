@@ -191,13 +191,42 @@ async def chat(request: ChatRequest):
     try:
         from litellm import completion
         
+        # Process messages to ensure they're in the correct format for LiteLLM
+        processed_messages = []
+        for msg in request.messages:
+            processed_msg = {"role": msg.role}
+            
+            # Handle different content types
+            if isinstance(msg.content, str):
+                processed_msg["content"] = msg.content
+            elif isinstance(msg.content, list):
+                processed_content = []
+                for content_item in msg.content:
+                    if isinstance(content_item, MessageContent):
+                        # Convert Pydantic object to dict
+                        content_dict = {"type": content_item.type}
+                        if content_item.text is not None:
+                            content_dict["text"] = content_item.text
+                        if content_item.image_url is not None:
+                            content_dict["image_url"] = content_item.image_url
+                        processed_content.append(content_dict)
+                    elif isinstance(content_item, dict):
+                        # Already a dict, use as-is
+                        processed_content.append(content_item)
+                    else:
+                        # Fallback for other types
+                        processed_content.append(str(content_item))
+                processed_msg["content"] = processed_content
+            else:
+                # Fallback for other content types
+                processed_msg["content"] = str(msg.content)
+            
+            processed_messages.append(processed_msg)
+        
         # Process the request using LiteLLM
         response = completion(
             model=request.model,
-            messages=[{
-                "role": msg.role,
-                "content": msg.content
-            } for msg in request.messages],
+            messages=processed_messages,
             temperature=request.temperature,
             stream=False
         )
@@ -254,13 +283,43 @@ async def chat_stream(websocket: WebSocket):
             from litellm import completion
             
             logging.info(f"Starting streaming completion for model: {chat_request.model}")
+            
+            # Process messages to ensure they're in the correct format for LiteLLM
+            processed_messages = []
+            for msg in chat_request.messages:
+                processed_msg = {"role": msg.role}
+                
+                # Handle different content types
+                if isinstance(msg.content, str):
+                    processed_msg["content"] = msg.content
+                elif isinstance(msg.content, list):
+                    processed_content = []
+                    for content_item in msg.content:
+                        if isinstance(content_item, MessageContent):
+                            # Convert Pydantic object to dict
+                            content_dict = {"type": content_item.type}
+                            if content_item.text is not None:
+                                content_dict["text"] = content_item.text
+                            if content_item.image_url is not None:
+                                content_dict["image_url"] = content_item.image_url
+                            processed_content.append(content_dict)
+                        elif isinstance(content_item, dict):
+                            # Already a dict, use as-is
+                            processed_content.append(content_item)
+                        else:
+                            # Fallback for other types
+                            processed_content.append(str(content_item))
+                    processed_msg["content"] = processed_content
+                else:
+                    # Fallback for other content types
+                    processed_msg["content"] = str(msg.content)
+                
+                processed_messages.append(processed_msg)
+            
             # Stream the chat response
             response_stream = completion(
                 model=chat_request.model,
-                messages=[{
-                    "role": msg.role,
-                    "content": msg.content
-                } for msg in chat_request.messages],
+                messages=processed_messages,
                 temperature=chat_request.temperature,
                 stream=True
             )
