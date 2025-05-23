@@ -162,6 +162,13 @@ export function SystemPromptLearningDashboard({
                       <li>• Enhanced task performance</li>
                     </ul>
                   </div>
+                  
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                    <h4 className="font-medium text-sm text-blue-900 dark:text-blue-100 mb-1">💡 Learning Tip</h4>
+                    <p className="text-xs text-blue-800 dark:text-blue-200">
+                      For faster experimentation, consider using smaller models (e.g., llama3.2:3b) instead of large ones (e.g., devstral:24b). Smaller models respond much quicker and are perfect for learning prompt engineering concepts.
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
 

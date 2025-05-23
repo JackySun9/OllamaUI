@@ -22,6 +22,7 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
   const [resultsA, setResultsA] = useState<ComparisonResult | null>(null);
   const [resultsB, setResultsB] = useState<ComparisonResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingTime, setLoadingTime] = useState(0);
 
   const testPrompts = [
     "Explain how a computer works.",
@@ -43,10 +44,16 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
     
     try {
       // Test both prompts with the same message
+      // Show progress for large models
+      const startTime = Date.now();
+      
       const [responseA, responseB] = await Promise.all([
         onTestPrompt(promptA, testMessage),
         onTestPrompt(promptB, testMessage)
       ]);
+      
+      const endTime = Date.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(1);
       
       setResultsA({
         prompt: promptA,
@@ -59,8 +66,21 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
         response: responseB,
         timestamp: Date.now()
       });
+      
+      console.log(`Comparison completed in ${duration}s`);
     } catch (error) {
       console.error('Error running comparison:', error);
+      // Set error states for better user feedback
+      setResultsA({
+        prompt: promptA,
+        response: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now()
+      });
+      setResultsB({
+        prompt: promptB,
+        response: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now()
+      });
     } finally {
       setIsLoading(false);
     }
@@ -76,6 +96,21 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
     setPromptA(promptB);
     setPromptB(temp);
   };
+
+  // Add a timer for loading feedback
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoading) {
+      interval = setInterval(() => {
+        setLoadingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      setLoadingTime(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading]);
 
   return (
     <div className="space-y-6">
@@ -170,7 +205,7 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
           className="gap-2"
         >
           <Play className="w-4 h-4" />
-          {isLoading ? 'Running Comparison...' : 'Run Comparison'}
+          {isLoading ? `Running... (${loadingTime}s)` : 'Run Comparison'}
         </Button>
         
         <Button variant="outline" onClick={swapPrompts} className="gap-2">
@@ -209,8 +244,13 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
                     </div>
                   </div>
                 ) : isLoading ? (
-                  <div className="text-center text-muted-foreground">
-                    Generating response...
+                  <div className="text-center text-muted-foreground space-y-2">
+                    <div>Generating response... ({loadingTime}s)</div>
+                    {loadingTime > 10 && (
+                      <div className="text-xs">
+                        Large models may take longer to respond
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </CardContent>
@@ -235,8 +275,13 @@ export function SystemPromptComparison({ onTestPrompt }: SystemPromptComparisonP
                     </div>
                   </div>
                 ) : isLoading ? (
-                  <div className="text-center text-muted-foreground">
-                    Generating response...
+                  <div className="text-center text-muted-foreground space-y-2">
+                    <div>Generating response... ({loadingTime}s)</div>
+                    {loadingTime > 10 && (
+                      <div className="text-xs">
+                        Large models may take longer to respond
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </CardContent>

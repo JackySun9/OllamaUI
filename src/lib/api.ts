@@ -10,7 +10,7 @@ interface RawApiProvider {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-const API_TIMEOUT = 30000; // 30 seconds timeout
+const API_TIMEOUT = 120000; // Increased to 120 seconds for large models
 
 // Helper function to handle fetch with timeout
 const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = API_TIMEOUT): Promise<Response> => {
