@@ -62,7 +62,7 @@ export function ModelDropdown({
           <ChevronDown size={16} className="text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 z-[100] bg-background border shadow-lg rounded-lg" align="end" sideOffset={8}>
+      <PopoverContent className="w-80 z-[9999] bg-background border shadow-lg rounded-lg" align="end" sideOffset={8}>
         <Tabs defaultValue="model">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="model">Model</TabsTrigger>

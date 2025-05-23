@@ -84,46 +84,65 @@ THINKING_MODELS = [
 
 # --- Helper Functions ---
 def get_ollama_models():
+    """
+    Fetch the latest list of models from Ollama.
+    This function ensures we get fresh data each time it's called.
+    """
     try:
-        models_data = ollama.list().get("models", [])
+        logging.info("Fetching fresh model list from Ollama...")
+        
+        # Call ollama.list() to get the most recent model list
+        models_response = ollama.list()
+        logging.debug(f"Raw Ollama response type: {type(models_response)}")
+        
         model_names = []
         
-        for m in models_data:
-            # Handle different Ollama API response structures
-            # Some versions use 'name', others might use 'model' or store it directly
-            if isinstance(m, dict):
-                if "name" in m:
-                    model_names.append(m["name"])
-                elif "model" in m:
-                    model_names.append(m["model"])
-                elif hasattr(m, "name") and m.name:
-                    model_names.append(m.name)
-                elif hasattr(m, "model") and m.model:
-                    model_names.append(m.model)
+        # Handle the newer ollama package response format (ListResponse object)
+        if hasattr(models_response, 'models'):
+            models_data = models_response.models
+            logging.debug(f"Found {len(models_data)} models in response")
+            
+            for model in models_data:
+                # Handle Model objects from the newer ollama package
+                if hasattr(model, 'model'):
+                    model_names.append(model.model)
+                elif hasattr(model, 'name'):
+                    model_names.append(model.name)
+                elif isinstance(model, dict):
+                    # Fallback for dict format
+                    if "name" in model:
+                        model_names.append(model["name"])
+                    elif "model" in model:
+                        model_names.append(model["model"])
         
-        if not model_names:
-            # If we still couldn't find models, try alternative API formats
-            try:
-                # Try direct model list (might be used in newer Ollama versions)
-                all_models = ollama.list()
-                if isinstance(all_models, list):
-                    for m in all_models:
-                        if isinstance(m, str):
-                            model_names.append(m)
-                        elif isinstance(m, dict) and "name" in m:
-                            model_names.append(m["name"])
-                        elif isinstance(m, dict) and "model" in m:
-                            model_names.append(m["model"])
-            except Exception as alt_e:
-                logging.warning(f"Alternative Ollama model fetch failed: {alt_e}")
-                
-        logging.info(f"Successfully fetched Ollama models: {model_names}")
+        # Legacy handling for older ollama package versions (dict response)
+        elif isinstance(models_response, dict):
+            models_data = models_response.get("models", [])
+            for m in models_data:
+                if isinstance(m, dict):
+                    if "name" in m:
+                        model_names.append(m["name"])
+                    elif "model" in m:
+                        model_names.append(m["model"])
+        
+        # Remove duplicates and sort
+        model_names = sorted(list(set(model_names)))
+        
+        if model_names:
+            logging.info(f"Successfully fetched {len(model_names)} Ollama models: {model_names}")
+        else:
+            logging.warning("No Ollama models found. Make sure Ollama is running and has models installed.")
+            
         return model_names
+        
+    except ConnectionError as e:
+        logging.error(f"Connection error when fetching Ollama models. Is Ollama running? Error: {e}")
+        return []
     except Exception as e:
         logging.error(f"Error fetching Ollama models: {e}", exc_info=True)
         return []
 
-def get_models_for_provider(provider_name):
+def get_models_for_provider(provider_name, force_refresh=False):
     if provider_name not in PREDEFINED_PROVIDERS:
         return []
     
@@ -132,6 +151,8 @@ def get_models_for_provider(provider_name):
     used_fallback = False
 
     if provider_info.get("dynamic_fetch", False):
+        # Always fetch from API for dynamic providers (like Ollama) when force_refresh is True
+        # or when it's the normal flow
         fetched_models = provider_info["fetch_func"]()
         if fetched_models:
             raw_models = fetched_models
@@ -152,6 +173,20 @@ def image_to_base64(pil_image, format="JPEG"):
     buffered = io.BytesIO()
     pil_image.save(buffered, format=format)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+def check_ollama_connection():
+    """
+    Check if Ollama is running and accessible.
+    Returns True if connected, False otherwise.
+    """
+    try:
+        # Try to get the list of models to test connection
+        response = ollama.list()
+        logging.info("Ollama connection successful")
+        return True
+    except Exception as e:
+        logging.error(f"Ollama connection failed: {e}")
+        return False
 
 # --- API Data Models ---
 class MessageContent(BaseModel):
@@ -191,11 +226,45 @@ async def get_providers():
         })
     return {"providers": providers}
 
+@app.get("/api/ollama/status")
+async def get_ollama_status():
+    """Check if Ollama service is running and accessible."""
+    is_connected = check_ollama_connection()
+    return {
+        "connected": is_connected,
+        "service": "ollama"
+    }
+
 @app.get("/api/models/{provider}")
-async def get_provider_models(provider: str):
-    models = get_models_for_provider(provider)
+async def get_provider_models(provider: str, t: Optional[str] = None, force_refresh: bool = False):
+    """Get models for a specific provider. 
+    
+    Args:
+        provider: The provider name (e.g., 'ollama', 'openai')
+        t: Timestamp parameter for cache busting (optional)
+        force_refresh: Force refresh from the provider API (optional)
+    """
+    # For debugging: log when refresh is requested
+    if force_refresh or t:
+        logging.info(f"Force refresh requested for {provider} provider (t={t}, force_refresh={force_refresh})")
+    
+    # For Ollama, check connection first when force_refresh is requested
+    if provider == 'ollama' and force_refresh:
+        if not check_ollama_connection():
+            raise HTTPException(
+                status_code=503, 
+                detail="Ollama service is not running or accessible. Please start Ollama and try again."
+            )
+    
+    models = get_models_for_provider(provider, force_refresh=force_refresh)
     if not models:
-        raise HTTPException(status_code=404, detail=f"No models found for provider {provider}")
+        if provider == 'ollama':
+            raise HTTPException(
+                status_code=404, 
+                detail="No Ollama models found. Make sure Ollama is running and has models installed. Try running 'ollama pull llama3' to install a model."
+            )
+        else:
+            raise HTTPException(status_code=404, detail=f"No models found for provider {provider}")
     return {"models": models}
 
 @app.post("/api/chat")

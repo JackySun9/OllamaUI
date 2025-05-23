@@ -103,7 +103,7 @@ export const getProviders = async (): Promise<Provider[]> => {
   }
 };
 
-export const getModels = async (provider: string): Promise<string[]> => {
+export const getModels = async (provider: string, bustCache: boolean = false): Promise<string[]> => {
   if (!provider) {
     throw new Error('Provider is required to fetch models');
   }
@@ -123,7 +123,24 @@ export const getModels = async (provider: string): Promise<string[]> => {
   };
   
   try {
-    const response = await fetchWithTimeout(`${API_BASE_URL}/models/${provider}`);
+    // Build URL with appropriate parameters for cache busting
+    let url = `${API_BASE_URL}/models/${provider}`;
+    const params = new URLSearchParams();
+    
+    if (bustCache) {
+      params.append('t', Date.now().toString());
+      // For Ollama specifically, add force_refresh parameter to ensure fresh data
+      if (provider === 'ollama') {
+        params.append('force_refresh', 'true');
+      }
+    }
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+    
+    console.log(`Fetching models from: ${url}`);
+    const response = await fetchWithTimeout(url);
     
     if (!response.ok) {
       await handleApiError(response, `Failed to fetch models for provider: ${provider}`);
@@ -135,6 +152,7 @@ export const getModels = async (provider: string): Promise<string[]> => {
       return getFallbackModels();
     }
     
+    console.log(`Successfully fetched ${data.models.length} models for ${provider}:`, data.models);
     return data.models;
   } catch (error) {
     // Provide fallback for any provider

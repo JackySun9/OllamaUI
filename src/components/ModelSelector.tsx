@@ -101,7 +101,11 @@ export function ModelSelector({
         const modelsData = await getModels(selectedProvider);
         
         // Log models for debugging
-        console.debug(`Models for ${selectedProvider}:`, modelsData);
+        if (selectedProvider === 'ollama') {
+          console.debug(`Loaded ${modelsData.length} Ollama models from cache/API:`, modelsData);
+        } else {
+          console.debug(`Models for ${selectedProvider}:`, modelsData);
+        }
         setModels(modelsData);
         
         // Ensure a model is selected if available
@@ -158,21 +162,63 @@ export function ModelSelector({
     }
   }, [selectedProvider, selectedModel, manualModel]); // Removed onModelSelect from deps
 
-  const refreshOllamaModels = async () => {
-    if (selectedProvider !== 'ollama') return;
+  const refreshModels = async (retryCount = 0) => {
+    if (!selectedProvider) return;
     
     try {
       setLoading(true);
       setModelsLoading(true);
       setError(null);
-      const modelsData = await getModels('ollama');
-      setModels(modelsData);
-      if (modelsData.length > 0) {
-        setSelectedModel(modelsData[0]);
+      
+      console.log(`Refreshing models for provider: ${selectedProvider}`);
+      
+      // For Ollama, show specific loading message
+      if (selectedProvider === 'ollama') {
+        console.log('Fetching latest Ollama models...');
       }
+      
+      // Always use cache busting when refreshing
+      const modelsData = await getModels(selectedProvider, true);
+      setModels(modelsData);
+      
+      // Only update selected model if current one is not in the new list
+      if (modelsData.length > 0) {
+        const modelExists = selectedModel && 
+          modelsData.some(model => model.toLowerCase() === selectedModel.toLowerCase());
+        
+        if (!modelExists) {
+          setSelectedModel(modelsData[0]);
+        }
+      }
+      
+      const successMsg = selectedProvider === 'ollama' 
+        ? `Successfully refreshed ${modelsData.length} Ollama models from local installation`
+        : `Successfully refreshed ${selectedProvider} models`;
+      console.log(successMsg, modelsData);
+      
     } catch (err) {
-      setError('Failed to refresh Ollama models');
-      console.error(err);
+      console.error(`Error refreshing ${selectedProvider} models:`, err);
+      
+      let errorMessage = `Failed to refresh ${selectedProvider} models.`;
+      
+      if (selectedProvider === 'ollama') {
+        if (err instanceof Error && err.message.includes('503')) {
+          errorMessage = 'Ollama service is not running. Please start Ollama and try again.';
+        } else if (err instanceof Error && err.message.includes('404')) {
+          errorMessage = 'No Ollama models found. Install models with "ollama pull <model-name>".';
+        } else {
+          errorMessage = 'Failed to connect to Ollama. Please ensure Ollama is running.';
+        }
+      }
+      
+      // Retry once if this is the first attempt and it's not a service unavailable error
+      if (retryCount === 0 && !(err instanceof Error && err.message.includes('503'))) {
+        console.log(`Retrying model refresh for ${selectedProvider}...`);
+        setTimeout(() => refreshModels(1), 1000);
+        return;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
       setModelsLoading(false);
@@ -194,7 +240,7 @@ export function ModelSelector({
             <SelectTrigger>
               <SelectValue placeholder="Select provider" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="z-[10000]">
               {providers.map((provider) => (
                 <SelectItem key={`provider-${provider.id}`} value={provider.id}>
                   {provider.name}
@@ -211,18 +257,20 @@ export function ModelSelector({
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             {!compact && <label className="text-sm font-medium">Model</label>}
-            {selectedProvider === 'ollama' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshOllamaModels}
-                disabled={loading}
-                className={compact ? 'h-7 px-2 text-xs' : ''}
-              >
-                <RefreshCcw size={compact ? 12 : 14} className={loading ? 'animate-spin' : ''} />
-                <span className="ml-1">{compact ? 'Refresh' : 'Refresh'}</span>
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshModels()}
+              disabled={loading}
+              className={compact ? 'h-7 px-2 text-xs' : ''}
+            >
+              <RefreshCcw size={compact ? 12 : 14} className={loading ? 'animate-spin' : ''} />
+              <span className="ml-1">
+                {loading 
+                  ? (selectedProvider === 'ollama' ? 'Fetching from Ollama...' : 'Refreshing...') 
+                  : (compact ? 'Refresh' : 'Refresh')}
+              </span>
+            </Button>
           </div>
           <Select
             value={selectedModel}
@@ -232,7 +280,7 @@ export function ModelSelector({
             <SelectTrigger>
               <SelectValue placeholder="Select model" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="z-[10000]">
               {models.map((model) => (
                 <SelectItem key={`model-${model}`} value={model}>
                   {model}
