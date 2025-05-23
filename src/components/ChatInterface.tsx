@@ -344,6 +344,10 @@ export function ChatInterface({
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Add streaming buffer and debouncing refs
+  const streamingBufferRef = useRef<string>('');
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get the storage key for the current model
   const getStorageKey = () => {
@@ -482,6 +486,10 @@ export function ChatInterface({
       if (streamingRef.current) {
         streamingRef.current.close();
       }
+      // Cleanup debounce timeout
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -601,6 +609,9 @@ export function ChatInterface({
         return updatedHistory;
       });
 
+      // Reset streaming buffer
+      streamingBufferRef.current = '';
+
       // Set up streaming
       const stream = createChatStream(
         {
@@ -619,21 +630,30 @@ export function ChatInterface({
           
           // Handle streaming chunk based on backend format
           if (data.chunk) {
-            // Process individual chunk
-            setChatHistory(prev => {
-              const updatedHistory = [...prev];
-              const lastMessage = updatedHistory[updatedHistory.length - 1];
-              
-              if (typeof lastMessage.assistant.content === 'string') {
-                lastMessage.assistant.content += data.chunk as string;
-              } else {
-                lastMessage.assistant.content = String(data.chunk);
-              }
-              
-              return updatedHistory;
-            });
+            // Accumulate chunks in the buffer
+            streamingBufferRef.current += data.chunk as string;
+            
+            // Clear existing debounce timeout
+            if (debounceTimeoutRef.current) {
+              clearTimeout(debounceTimeoutRef.current);
+            }
+            
+            // Debounce UI updates to reduce visual duplication
+            debounceTimeoutRef.current = setTimeout(() => {
+              setChatHistory(prev => {
+                const updatedHistory = [...prev];
+                const lastMessage = updatedHistory[updatedHistory.length - 1];
+                lastMessage.assistant.content = streamingBufferRef.current;
+                return updatedHistory;
+              });
+            }, 50); // 50ms debounce
           } else if (data.done) {
-            // Final message with complete response - parse the content for multiple output types
+            // Clear any pending debounce timeout
+            if (debounceTimeoutRef.current) {
+              clearTimeout(debounceTimeoutRef.current);
+              debounceTimeoutRef.current = null;
+            }
+           
             setChatHistory(prev => {
               const updatedHistory = [...prev];
               const lastMessage = updatedHistory[updatedHistory.length - 1];

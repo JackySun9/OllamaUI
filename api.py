@@ -153,60 +153,6 @@ def image_to_base64(pil_image, format="JPEG"):
     pil_image.save(buffered, format=format)
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-def clean_model_response(text, model_name=None):
-    """
-    Remove or preserve thinking tags and other content from model responses
-    depending on the model type.
-    
-    Args:
-        text: The text to clean
-        model_name: Name of the model, to check if it's a thinking model
-    
-    Returns:
-        Cleaned text with thinking tags preserved or removed as appropriate
-    """
-    if not text:
-        return ""
-    
-    # First, remove any duplicated words that sometimes occur in streaming
-    # This regex looks for repeated words like "word word" and replaces with "word"
-    text = re.sub(r'\b(\w+)(\s+\1\b)+', r'\1', text)
-    
-    # Check if this is a "thinking model" that should display its reasoning
-    is_thinking_model = False
-    if model_name:
-        # Extract base model name from fully qualified name (e.g., "ollama/deepseek-r1:14b" -> "deepseek-r1:14b")
-        base_model = model_name.split('/')[-1] if '/' in model_name else model_name
-        
-        # Check if this model is in our thinking models list or contains keywords
-        is_thinking_model = any(thinking_model in base_model.lower() 
-                               for thinking_model in THINKING_MODELS) or \
-                           any(keyword in base_model.lower() 
-                               for keyword in ["think", "reasoning", "cot"])
-    
-    # Always remove thinking sections - we handle in separate UI components
-    # First, handle any nested thinking tags by finding the outermost ones
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    
-    # Remove other tags that might appear
-    text = re.sub(r'<answer>|</answer>', '', text)
-    text = re.sub(r'<reasoning>.*?</reasoning>', '', text, flags=re.DOTALL)
-    
-    # Common cleaning for all models
-    # Replace multiple newlines with just two
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    
-    # Fix periods at line ends (common in some model outputs)
-    text = re.sub(r'\.\s*\n', '\n', text)
-    
-    # Fix any leftover duplicated punctuation
-    text = re.sub(r'([.,?!:;])\1+', r'\1', text)
-    
-    # Trim leading/trailing whitespace
-    text = text.strip()
-    
-    return text
-
 # --- API Data Models ---
 class MessageContent(BaseModel):
     type: str  # "text" or "image_url"
@@ -268,13 +214,10 @@ async def chat(request: ChatRequest):
         elif hasattr(response, 'text'):
             response_content = response.text
         
-        # Clean response
-        cleaned_response = clean_model_response(response_content, request.model)
-        
         return {
             "message": {
                 "role": "assistant",
-                "content": cleaned_response
+                "content": response_content
             },
             "model": request.model
         }
@@ -323,8 +266,6 @@ async def chat_stream(websocket: WebSocket):
             )
             
             full_response = ""
-            in_think_tag = False
-            current_thinking = ""
             
             for chunk in response_stream:
                 delta = None
@@ -348,50 +289,24 @@ async def chat_stream(websocket: WebSocket):
                 # Detect and handle <think> tags while streaming
                 full_response += delta
                 
-                # Track if we're inside a thinking section
-                if "<think>" in delta:
-                    in_think_tag = True
-                    current_thinking = ""
-                    continue  # Don't send this chunk to the client
-                
-                if in_think_tag:
-                    current_thinking += delta
-                    if "</think>" in delta:
-                        in_think_tag = False
-                        # Don't send thinking content
-                    continue  # Skip sending chunks while in thinking mode
-                
-                # Fix common streaming issues like duplicated words
-                cleaned_delta = delta
-                
                 # Only send non-thinking content
                 await websocket.send_json({
-                    "chunk": cleaned_delta,
+                    "chunk": delta,
                     "message": {
                         "role": "assistant",
-                        "content": cleaned_delta
+                        "content": delta
                     }
                 })
                 
                 # Small delay to not overwhelm the client
                 await asyncio.sleep(0.01)
-                
-            # Clean final response - remove thinking tags properly
-            cleaned_response = clean_model_response(full_response, chat_request.model)
-            
-            # Post-process response to fix duplicated words
-            # This regex looks for repeated words like "word word" and replaces with "word"
-            cleaned_response = re.sub(r'\b(\w+)(\s+\1\b)+', r'\1', cleaned_response)
-            
-            # Fix periods at line ends
-            cleaned_response = re.sub(r'\.\s*\n', '\n', cleaned_response)
             
             # Send final message
             await websocket.send_json({
                 "done": True,
                 "message": {
                     "role": "assistant",
-                    "content": cleaned_response
+                    "content": full_response
                 },
                 "model": chat_request.model
             })
