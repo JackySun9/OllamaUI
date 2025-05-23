@@ -3,10 +3,12 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { ChatInterface } from '@/components/ChatInterface';
+import { SystemPromptLearningDashboard } from '@/components/SystemPromptLearningDashboard';
 import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Plus, User, FileText } from 'lucide-react';
+import { Plus, User, FileText, BookOpen, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { createChatStream, sendChatMessage } from '@/lib/api';
 import Link from 'next/link';
 
 // History component is already exported from ChatInterface
@@ -20,6 +22,7 @@ export default function Home() {
     temperature: 0.7,
   });
   const [newChat, setNewChat] = useState(true);
+  const [learningMode, setLearningMode] = useState(false);
   
   // Check if we're on mobile once when component mounts
   useEffect(() => {
@@ -74,6 +77,74 @@ export default function Home() {
     setNewChat(false);
   }, []);
 
+  // Handle testing prompts for the learning dashboard
+  const handleTestPrompt = async (prompt: string, userMessage: string): Promise<string> => {
+    if (!modelSelection) {
+      return "Please select a model first to test prompts.";
+    }
+
+    try {
+      // Use your existing chat API for non-streaming
+      const messages = [
+        { role: 'system' as const, content: prompt },
+        { role: 'user' as const, content: userMessage }
+      ];
+
+      const payload = {
+        model: `${modelSelection.provider}/${modelSelection.model}`,
+        messages,
+        temperature: modelSettings.temperature,
+        stream: false
+      };
+
+      const response = await sendChatMessage(payload);
+      
+      // Extract the message content from the response
+      if (response?.message?.content) {
+        return typeof response.message.content === 'string' 
+          ? response.message.content 
+          : JSON.stringify(response.message.content);
+      }
+      
+      return "No response received from the model.";
+    } catch (error) {
+      console.error('Error testing prompt:', error);
+      return `Error: Could not test prompt. ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  };
+
+  // If in learning mode, show the learning dashboard
+  if (learningMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="p-4 border-b">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setLearningMode(false)}
+                className="gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Chat
+              </Button>
+              <h1 className="text-xl font-semibold">System Prompt Learning Lab</h1>
+            </div>
+            <ModeToggle />
+          </div>
+        </div>
+        
+        <SystemPromptLearningDashboard
+          selectedModel={modelSelection}
+          modelSettings={modelSettings}
+          onSettingsChange={setModelSettings}
+          onTestPrompt={handleTestPrompt}
+        />
+      </div>
+    );
+  }
+
   // Remove the welcome screen conditional rendering and go directly to the chat interface
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -109,6 +180,16 @@ export default function Home() {
             >
               <Plus size={16} className="mr-2" />
               New Chat
+            </Button>
+            
+            {/* Learning Mode Button */}
+            <Button 
+              onClick={() => setLearningMode(true)}
+              className="mb-4 w-full justify-start"
+              variant="secondary"
+            >
+              <BookOpen size={16} className="mr-2" />
+              Learning Lab
             </Button>
             
             {/* Markdown Demo Link */}
