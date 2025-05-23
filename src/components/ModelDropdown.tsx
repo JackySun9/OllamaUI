@@ -1,37 +1,30 @@
-import React, { useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ChevronDown, Settings } from 'lucide-react';
 import { ModelSelector } from '@/components/ModelSelector';
 import { ModelSettings } from '@/components/ModelSettings';
 import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Bot, ChevronDown } from 'lucide-react';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { useModel } from '@/contexts/ModelContext';
 
 interface ModelDropdownProps {
-  selectedModel: ModelSelection | null;
-  onModelSelect: (model: ModelSelection) => void;
   modelSettings: ModelSettingsType;
   onSettingsChange: (settings: ModelSettingsType) => void;
 }
 
 export function ModelDropdown({ 
-  selectedModel, 
-  onModelSelect, 
   modelSettings, 
   onSettingsChange 
 }: ModelDropdownProps) {
-  // Format the model name for display
-  const getDisplayModelName = () => {
-    if (!selectedModel) return 'Select a model';
+  const { selectedModel, setSelectedModel } = useModel();
+  const [showSettings, setShowSettings] = useState(false);
+
+  const handleModelSelect = (model: ModelSelection) => {
+    setSelectedModel(model);
+  };
+
+  const getDisplayName = () => {
+    if (!selectedModel) return 'Select Model';
     
     if (selectedModel.manualModelString) {
       return selectedModel.manualModelString;
@@ -43,53 +36,58 @@ export function ModelDropdown({
     
     return `${selectedModel.provider}/${selectedModel.model}`;
   };
-  
-  // Handle model selection - memoized to prevent infinite loops
-  const handleModelSelect = useCallback((model: ModelSelection) => {
-    onModelSelect(model);
-  }, [onModelSelect]);
-  
+
+  if (showSettings) {
+    return (
+      <div className="space-y-4 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Model Settings</h3>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setShowSettings(false)}
+            className="h-6 w-6 p-0"
+          >
+            ✕
+          </Button>
+        </div>
+        <ModelSettings
+          settings={modelSettings}
+          onSettingsChange={onSettingsChange}
+          disabled={!selectedModel}
+          compact={true}
+        />
+      </div>
+    );
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button 
           variant="outline" 
-          size="sm" 
-          className="flex items-center gap-2 h-9 px-3 border rounded-lg bg-background hover:bg-muted"
+          className="gap-2 min-w-[200px] justify-between"
         >
-          <Bot size={18} className="text-primary" />
-          <span className="max-w-[120px] truncate font-medium">{getDisplayModelName()}</span>
-          <ChevronDown size={16} className="text-muted-foreground" />
+          <span className="truncate">{getDisplayName()}</span>
+          <div className="flex items-center gap-1">
+            <Settings 
+              size={14} 
+              className="text-muted-foreground hover:text-foreground cursor-pointer" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSettings(true);
+              }}
+            />
+            <ChevronDown size={14} />
+          </div>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 z-[9999] bg-background border shadow-lg rounded-lg" align="end" sideOffset={8}>
-        <Tabs defaultValue="model">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="model">Model</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="model" className="space-y-4 p-4">
-            <h3 className="text-sm font-medium">Select Model</h3>
-            <div className="max-h-[300px] overflow-y-auto">
-              <ModelSelector 
-                onModelSelect={handleModelSelect} 
-                currentModel={selectedModel}
-                compact
-              />
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="settings" className="space-y-4 p-4">
-            <h3 className="text-sm font-medium">Model Settings</h3>
-            <ModelSettings 
-              settings={modelSettings} 
-              onSettingsChange={onSettingsChange} 
-              disabled={!selectedModel}
-              compact
-            />
-          </TabsContent>
-        </Tabs>
+        <ModelSelector 
+          currentModel={selectedModel}
+          onModelSelect={handleModelSelect}
+          compact={false}
+        />
       </PopoverContent>
     </Popover>
   );

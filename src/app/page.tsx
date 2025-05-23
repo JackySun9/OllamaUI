@@ -1,71 +1,54 @@
 // app/page.tsx
 "use client";
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { ChatInterface } from '@/components/ChatInterface';
-import { SystemPromptLearningDashboard } from '@/components/SystemPromptLearningDashboard';
-import { ModelSelection, ModelSettings as ModelSettingsType } from '@/types';
-import { ModeToggle } from '@/components/ModeToggle';
-import { Plus, User, FileText, BookOpen, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { createChatStream, sendChatMessage } from '@/lib/api';
+import { ChatInterface } from '@/components/ChatInterface';
+import { SimpleHistory } from '@/components/SimpleHistory';
+import { ModelSettings as ModelSettingsType, ChatHistory } from '@/types';
+import { ModeToggle } from '@/components/ModeToggle';
+import { Plus, BookOpen, FileText, ArrowLeft, User } from 'lucide-react';
+import { SystemPromptLearningDashboard } from '@/components/SystemPromptLearningDashboard';
 import Link from 'next/link';
+import { sendChatMessage } from '@/lib/api';
+import { ModelProvider, useModel } from '@/contexts/ModelContext';
+import { loadConversationData } from '@/lib/conversationUtils';
 
-// History component is already exported from ChatInterface
-
-export default function Home() {
-  const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
-  const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('chat');
-  const [isMobile, setIsMobile] = useState(false);
+function HomeContent() {
+  const { selectedModel, setSelectedModel } = useModel();
   const [modelSettings, setModelSettings] = useState<ModelSettingsType>({
     systemPrompt: '',
     temperature: 0.7,
   });
-  const [newChat, setNewChat] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('chat');
+  const [newChat, setNewChat] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
-  // Check if we're on mobile once when component mounts
+  // Ref to the ChatInterface to call its methods
+  const chatInterfaceRef = useRef<{ 
+    loadConversation: (history: ChatHistory[], conversationId: string) => void;
+    getCurrentConversationId: () => string | null;
+  }>(null);
+
+  // Check for mobile on mount and resize
   useEffect(() => {
     const checkIfMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
     
-    // Initial check
     checkIfMobile();
-    
-    // Add resize listener
     window.addEventListener('resize', checkIfMobile);
     
-    // Create a listener for model selection events
-    const handleModelSelection = (event: CustomEvent<ModelSelection>) => {
-      setModelSelection(event.detail);
-    };
-    
-    window.addEventListener('model-selected', handleModelSelection as EventListener);
-    
-    // Cleanup
     return () => {
       window.removeEventListener('resize', checkIfMobile);
-      window.removeEventListener('model-selected', handleModelSelection as EventListener);
     };
-  }, []);
-  
-  // Load the last selected model from localStorage
-  useEffect(() => {
-    const lastModelJson = localStorage.getItem('ollama-webui-last-model');
-    
-    if (lastModelJson) {
-      try {
-        const lastModel = JSON.parse(lastModelJson) as ModelSelection;
-        setModelSelection(lastModel);
-      } catch (e) {
-        console.error('Failed to parse last model selection:', e);
-      }
-    }
   }, []);
 
   // Handle starting a new chat
   const handleNewChat = useCallback(() => {
+    console.debug('Starting new chat...');
     setNewChat(true);
     if (isMobile) {
       setMobileView('chat');
@@ -77,21 +60,45 @@ export default function Home() {
     setNewChat(false);
   }, []);
 
+  // Handle conversation loading from history
+  const handleLoadConversation = useCallback((modelString: string, conversationId: string) => {
+    console.debug(`Loading conversation: ${modelString}::${conversationId}`);
+    const conversationData = loadConversationData(modelString, conversationId);
+    
+    // Load the conversation into the chat interface
+    if (chatInterfaceRef.current && conversationData.length > 0) {
+      chatInterfaceRef.current.loadConversation(conversationData, conversationId);
+    }
+    
+    // Update current conversation ID
+    setCurrentConversationId(conversationId);
+    
+    // Switch to chat view on mobile
+    if (isMobile) {
+      setMobileView('chat');
+    }
+  }, [isMobile]);
+
+  // Handle new conversation creation
+  const handleNewConversation = useCallback((conversationId: string) => {
+    console.debug(`New conversation created: ${conversationId}`);
+    setCurrentConversationId(conversationId);
+  }, []);
+
   // Handle testing prompts for the learning dashboard
   const handleTestPrompt = async (prompt: string, userMessage: string): Promise<string> => {
-    if (!modelSelection) {
+    if (!selectedModel) {
       return "Please select a model first to test prompts.";
     }
 
     try {
-      // Use your existing chat API for non-streaming
       const messages = [
         { role: 'system' as const, content: prompt },
         { role: 'user' as const, content: userMessage }
       ];
 
       const payload = {
-        model: `${modelSelection.provider}/${modelSelection.model}`,
+        model: `${selectedModel.provider}/${selectedModel.model}`,
         messages,
         temperature: modelSettings.temperature,
         stream: false
@@ -99,7 +106,6 @@ export default function Home() {
 
       const response = await sendChatMessage(payload);
       
-      // Extract the message content from the response
       if (response?.message?.content) {
         return typeof response.message.content === 'string' 
           ? response.message.content 
@@ -136,7 +142,7 @@ export default function Home() {
         </div>
         
         <SystemPromptLearningDashboard
-          selectedModel={modelSelection}
+          selectedModel={selectedModel}
           modelSettings={modelSettings}
           onSettingsChange={setModelSettings}
           onTestPrompt={handleTestPrompt}
@@ -145,7 +151,6 @@ export default function Home() {
     );
   }
 
-  // Remove the welcome screen conditional rendering and go directly to the chat interface
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Mobile header */}
@@ -203,12 +208,14 @@ export default function Home() {
               </Button>
             </Link>
             
-            {/* Chat history will be handled by the ChatInterface */}
+            {/* Simple Chat history */}
             <div className="flex-1 mb-4 overflow-y-auto">
               <h2 className="font-medium mb-2 text-sm">Chat History</h2>
-              <ChatInterface.History 
+              <SimpleHistory 
                 onSelectConversation={() => isMobile && setMobileView('chat')}
-                startNewChat={handleNewChat}
+                onStartNewChat={handleNewChat}
+                onLoadConversation={handleLoadConversation}
+                newConversationId={currentConversationId}
               />
             </div>
             
@@ -239,14 +246,24 @@ export default function Home() {
           )}
           
           <ChatInterface 
-            selectedModel={modelSelection} 
+            ref={chatInterfaceRef}
+            selectedModel={selectedModel} 
             modelSettings={modelSettings}
             onSettingsChange={setModelSettings}
             newChat={newChat}
             onChatLoad={handleChatLoad}
+            onNewConversation={handleNewConversation}
           />
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <ModelProvider>
+      <HomeContent />
+    </ModelProvider>
   );
 }

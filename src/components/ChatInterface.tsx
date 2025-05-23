@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { createChatStream } from '@/lib/api';
 import { parseAssistantContent } from '@/lib/utils';
 import { Trash2, Eraser, ExternalLink } from 'lucide-react';
 import { ModelDropdown } from '@/components/ModelDropdown';
+import { useModel } from '@/contexts/ModelContext';
 
 // Storage key prefix for chat history
 const CHAT_HISTORY_STORAGE_PREFIX = 'ollama-webui-chat-history';
@@ -17,337 +18,54 @@ interface ChatInterfaceProps {
   onSettingsChange: (settings: ModelSettingsType) => void;
   newChat?: boolean;
   onChatLoad?: () => void;
+  onNewConversation?: (conversationId: string) => void;
 }
 
-export interface ChatHistoryProps {
-  onSelectConversation?: () => void;
-  startNewChat?: () => void;
+export interface ChatInterfaceRef {
+  loadConversation: (history: ChatHistory[], conversationId: string) => void;
+  getCurrentConversationId: () => string | null;
 }
 
 interface StoredChatHistory extends ChatHistory {
   timestamp: number;
 }
 
-interface ConversationMeta {
-  id: string;
-  title: string;
-  lastMessage: string;
-  timestamp: number;
-  messageCount: number;
-}
-
-// Separate History component for sidebar
-export function HistoryComponent({ onSelectConversation, startNewChat }: ChatHistoryProps) {
-  const [pastConversations, setPastConversations] = useState<ConversationMeta[]>([]);
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Load all conversations across all models
-    loadAllConversations();
-    
-    // Get current conversation ID from localStorage
-    const allModels = getAllModels();
-    if (allModels.length > 0) {
-      for (const model of allModels) {
-        const currentId = localStorage.getItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${model}-current`);
-        if (currentId) {
-          setCurrentConversationId(currentId);
-          setSelectedModel(model);
-          break;
-        }
-      }
-    }
-  }, []);
-
-  // Get all models that have conversations
-  const getAllModels = (): string[] => {
-    const models = new Set<string>();
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX) && !key.endsWith('-current')) {
-        // Extract model name from key
-        // Key format: ollama-webui-chat-history-{modelString}-{conversationId}
-        const prefixLength = CHAT_HISTORY_STORAGE_PREFIX.length + 1; // +1 for the dash
-        const remainingKey = key.substring(prefixLength);
-        
-        // Find the pattern "-conv-" to separate model string from conversation ID
-        // Conversation IDs always start with "conv-" so look for that pattern
-        const convPatternIndex = remainingKey.indexOf('-conv-');
-        if (convPatternIndex !== -1) {
-          const modelString = remainingKey.substring(0, convPatternIndex);
-          models.add(modelString);
-        }
-      }
-    }
-    
-    return Array.from(models);
-  };
-
-  // Load all conversations across models
-  const loadAllConversations = () => {
-    const conversations: ConversationMeta[] = [];
-    
-    // Find all keys that match any model's storage pattern
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      // Skip the "current" pointers
-      if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX) && !key.endsWith('-current')) {
-        try {
-          const rawData = localStorage.getItem(key);
-          if (rawData) {
-            const chatData = JSON.parse(rawData) as StoredChatHistory[];
-            
-            if (chatData.length > 0) {
-              // Extract model and conversation ID from the key
-              // Key format: ollama-webui-chat-history-{modelString}-{conversationId}
-              const prefixLength = CHAT_HISTORY_STORAGE_PREFIX.length + 1; // +1 for the dash
-              const remainingKey = key.substring(prefixLength);
-              
-              // Find the pattern "-conv-" to separate model string from conversation ID
-              // Conversation IDs always start with "conv-" so look for that pattern
-              const convPatternIndex = remainingKey.indexOf('-conv-');
-              if (convPatternIndex === -1) continue; // Invalid format
-              
-              const modelString = remainingKey.substring(0, convPatternIndex);
-              const conversationId = remainingKey.substring(convPatternIndex + 1); // +1 to skip the dash
-              
-              // Find the newest timestamp
-              let latestTimestamp = 0;
-              for (const message of chatData) {
-                if (message.timestamp && message.timestamp > latestTimestamp) {
-                  latestTimestamp = message.timestamp;
-                }
-              }
-              
-              conversations.push({
-                id: `${modelString}::${conversationId}`,
-                title: getConversationTitle(chatData),
-                lastMessage: getLastMessage(chatData),
-                timestamp: latestTimestamp || Date.now(),
-                messageCount: chatData.length
-              });
-            }
-          }
-        } catch (err) {
-          console.error(`Error loading conversation from ${key}:`, err);
-        }
-      }
-    }
-    
-    // Sort by timestamp, newest first
-    conversations.sort((a, b) => b.timestamp - a.timestamp);
-    setPastConversations(conversations);
-  };
-
-  // Extract title from conversation
-  const getConversationTitle = (history: ChatHistory[]): string => {
-    if (history.length === 0) return "Empty conversation";
-    
-    // Use the first user message as the title, truncating if needed
-    const firstMessage = typeof history[0].user.content === 'string' 
-      ? history[0].user.content 
-      : history[0].user.content.text;
-      
-    return firstMessage.length > 30
-      ? firstMessage.substring(0, 30) + '...'
-      : firstMessage;
-  };
-
-  // Get last message preview
-  const getLastMessage = (history: ChatHistory[]): string => {
-    if (history.length === 0) return "";
-    
-    const lastItem = history[history.length - 1];
-    const isAssistantMessage = lastItem.assistant && lastItem.assistant.content;
-    
-    if (isAssistantMessage) {
-      return typeof lastItem.assistant.content === 'string'
-        ? lastItem.assistant.content.substring(0, 40) + (lastItem.assistant.content.length > 40 ? '...' : '')
-        : '';
-    } else {
-      return typeof lastItem.user.content === 'string'
-        ? lastItem.user.content.substring(0, 40) + (lastItem.user.content.length > 40 ? '...' : '')
-        : lastItem.user.content.text.substring(0, 40) + (lastItem.user.content.text.length > 40 ? '...' : '');
-    }
-  };
-
-  // Handle conversation selection
-  const handleSelectConversation = (fullId: string) => {
-    // Extract model and conversation ID
-    // Format: {modelString}::{conversationId}
-    const separatorIndex = fullId.indexOf('::');
-    if (separatorIndex === -1) return; // Invalid format
-    
-    const modelString = fullId.substring(0, separatorIndex);
-    const conversationId = fullId.substring(separatorIndex + 2);
-    
-    // Set current conversation in localStorage
-    localStorage.setItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`, conversationId);
-    
-    // We need to handle model switching and conversation loading
-    // selectedModel here is a string, not a ModelSelection object
-    if (selectedModel !== modelString) {
-      // Need to switch models first, then load the conversation
-      // Try to parse the model string to get provider and model
-      let provider = 'ollama';
-      let model = modelString;
-      
-      if (modelString.includes('/')) {
-        const [providerPart, modelPart] = modelString.split('/', 2);
-        provider = providerPart;
-        model = modelPart;
-      }
-      
-      const newModelSelection = {
-        provider,
-        model,
-        manualModelString: modelString.includes('/') ? modelString : undefined
-      };
-      
-      // Save the model selection
-      localStorage.setItem('ollama-webui-last-model', JSON.stringify(newModelSelection));
-      
-      // Dispatch event to update model
-      window.dispatchEvent(new CustomEvent('model-selected', { 
-        detail: newModelSelection 
-      }));
-    }
-    
-    // Trigger callback for mobile view
-    if (onSelectConversation) {
-      onSelectConversation();
-    }
-    
-    // Instead of page reload, dispatch a custom event with conversation details
-    window.dispatchEvent(new CustomEvent('conversation-selected', { 
-      detail: { 
-        modelString, 
-        conversationId,
-        needsModelChange: selectedModel !== modelString
-      } 
-    }));
-   };
-
-  // Delete a conversation
-  const deleteConversation = (fullId: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    
-    // Extract model and conversation ID
-    // Format: {modelString}::{conversationId}
-    const separatorIndex = fullId.indexOf('::');
-    if (separatorIndex === -1) return; // Invalid format
-    
-    const modelString = fullId.substring(0, separatorIndex);
-    const conversationId = fullId.substring(separatorIndex + 2);
-    
-    // Remove from localStorage
-    localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-${conversationId}`);
-    
-    // If this was the current conversation, handle accordingly
-    if (fullId === `${selectedModel}::${currentConversationId}`) {
-      // Clear current conversation pointer
-      localStorage.removeItem(`${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}-current`);
-    }
-    
-    // Refresh conversation list
-    loadAllConversations();
-  };
-
-  // Format timestamp
-  const formatTimestamp = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    
-    // Check if it's today
-    const today = new Date();
-    if (date.toDateString() === today.toDateString()) {
-      return `Today`;
-    }
-    
-    // Check if it's yesterday
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday`;
-    }
-    
-    // Otherwise return date
-    return date.toLocaleDateString([], { 
-      month: 'short', 
-      day: 'numeric'
-    });
-  };
-
-  // We directly use startNewChat prop in our component
-
-  return (
-    <div className="flex flex-col space-y-2">
-      {pastConversations.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-3">
-          No saved conversations
-        </div>
-      ) : (
-        pastConversations.map(conversation => (
-          <div 
-            key={conversation.id} 
-            className={`p-2 rounded cursor-pointer hover:bg-muted text-sm flex items-center 
-                      ${conversation.id === `${selectedModel}::${currentConversationId}` ? 
-                        'bg-muted/70 border-l-4 border-primary pl-1.5' : ''}`}
-            onClick={() => handleSelectConversation(conversation.id)}
-          >
-            <div className="flex-1 overflow-hidden">
-              <div className="font-medium truncate">{conversation.title}</div>
-              <div className="flex justify-between items-center mt-0.5">
-                <span className="text-xs text-muted-foreground">{formatTimestamp(conversation.timestamp)}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100 -mr-1"
-                  onClick={(e) => deleteConversation(conversation.id, e)}
-                  title="Delete conversation"
-                >
-                  <Trash2 size={12} />
-                </Button>
-              </div>
-            </div>
-          </div>
-        ))
-      )}
-      
-      {/* Add a new chat button at the bottom of the list */}
-      <Button 
-        variant="ghost" 
-        size="sm"
-        onClick={() => startNewChat && startNewChat()}
-        className="mt-2 w-full justify-center text-xs"
-      >
-        <ExternalLink size={12} className="mr-1" />
-        New Chat
-      </Button>
-    </div>
-  );
-}
-
-// Main ChatInterface component
-export function ChatInterface({ 
+// Main ChatInterface component with forwardRef
+export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({ 
   selectedModel, 
   modelSettings, 
   onSettingsChange,
   newChat = false,
-  onChatLoad
-}: ChatInterfaceProps) {
+  onChatLoad,
+  onNewConversation
+}, ref) => {
+  const { setSelectedModel } = useModel();
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamingRef = useRef<{ close: () => void } | null>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [isLoadingExistingConversation, setIsLoadingExistingConversation] = useState(false); // Flag to prevent auto-save
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
   // Add streaming buffer and debouncing refs
   const streamingBufferRef = useRef<string>('');
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Expose methods to parent component
+  useImperativeHandle(ref, () => ({
+    loadConversation: (history: ChatHistory[], conversationId: string) => {
+      console.debug(`Loading existing conversation ${conversationId} with`, history.length, 'messages');
+      setIsLoadingExistingConversation(true); // Set flag to prevent auto-save
+      setCurrentConversationId(conversationId); // Set the conversation ID
+      setChatHistory(history);
+      setError(null);
+      // Reset the flag after a short delay to allow the useEffect to skip the save
+      setTimeout(() => setIsLoadingExistingConversation(false), 100);
+    },
+    getCurrentConversationId: () => currentConversationId
+  }));
 
   // Get the storage key for the current model
   const getStorageKey = () => {
@@ -365,49 +83,6 @@ export function ChatInterface({
   const generateConversationId = () => {
     return `conv-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   };
-
-  // Function to load a specific conversation
-  const loadConversation = useCallback((modelString: string, conversationId: string) => {
-    const storageKey = `${CHAT_HISTORY_STORAGE_PREFIX}-${modelString}`;
-    const savedHistory = localStorage.getItem(`${storageKey}-${conversationId}`);
-    
-    if (savedHistory) {
-      try {
-        const parsedHistory = JSON.parse(savedHistory);
-        if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-          // Remove timestamp property when loading history for UI display
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const displayHistory = parsedHistory.map(({ timestamp: _, ...item }: StoredChatHistory) => item as ChatHistory);
-          setChatHistory(displayHistory);
-          setCurrentConversationId(conversationId);
-          setError(null);
-        }
-      } catch (err) {
-        console.error('Failed to parse saved chat history:', err);
-        setChatHistory([]);
-        setCurrentConversationId(null);
-      }
-    }
-  }, []);
-
-  // Listen for conversation selection events
-  useEffect(() => {
-    const handleConversationSelection = (event: CustomEvent) => {
-      const { modelString, conversationId, needsModelChange } = event.detail;
-      
-      if (!needsModelChange) {
-        // Same model, just load the conversation directly
-        loadConversation(modelString, conversationId);
-      }
-      // If model change is needed, the model-selected event will trigger and load the conversation
-    };
-    
-    window.addEventListener('conversation-selected', handleConversationSelection as EventListener);
-    
-    return () => {
-      window.removeEventListener('conversation-selected', handleConversationSelection as EventListener);
-    };
-  }, [loadConversation]);
 
   // Load chat history from localStorage when model changes or newChat is triggered
   useEffect(() => {
@@ -459,7 +134,14 @@ export function ChatInterface({
     const storageKey = getStorageKey();
     if (!storageKey || !currentConversationId) return;
     
+    // Skip saving if we're currently loading an existing conversation
+    if (isLoadingExistingConversation) {
+      console.debug('Skipping auto-save while loading existing conversation');
+      return;
+    }
+    
     if (chatHistory.length > 0) {
+      console.debug(`Saving conversation ${currentConversationId} with ${chatHistory.length} messages`);
       // Add timestamp to each message when storing
       const storedHistory = chatHistory.map(item => ({
         ...item,
@@ -471,7 +153,7 @@ export function ChatInterface({
       localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
       localStorage.setItem(`${storageKey}-current`, currentConversationId);
     }
-  }, [chatHistory, selectedModel, currentConversationId]);
+  }, [chatHistory, selectedModel, currentConversationId, isLoadingExistingConversation]);
 
   // Scroll to bottom of chat when history changes
   useEffect(() => {
@@ -499,11 +181,11 @@ export function ChatInterface({
     if (streamingRef.current) {
       streamingRef.current.close();
       streamingRef.current = null;
-      setIsLoading(false);
     }
     
     // Generate a new conversation ID
     const newId = generateConversationId();
+    console.debug(`Starting new conversation with ID: ${newId}`);
     setCurrentConversationId(newId);
     
     // Save the current ID
@@ -515,6 +197,11 @@ export function ChatInterface({
     // Clear the chat history
     setChatHistory([]);
     setError(null);
+    
+    // Notify parent component about the new conversation
+    if (onNewConversation) {
+      onNewConversation(newId);
+    }
   };
 
   const handleSendMessage = async (text: string, imageBase64?: string) => {
@@ -766,18 +453,6 @@ export function ChatInterface({
           )}
         </div>
         <ModelDropdown 
-          selectedModel={selectedModel}
-          onModelSelect={(model) => {
-            // Save the selection to localStorage
-            localStorage.setItem('ollama-webui-last-model', JSON.stringify(model));
-            
-            // Dispatch an event to update the parent component
-            window.dispatchEvent(new CustomEvent('model-selected', { 
-              detail: model 
-            }));
-            
-            // No immediate reload - let the UI update naturally
-          }}
           modelSettings={modelSettings}
           onSettingsChange={onSettingsChange}
         />
@@ -897,7 +572,6 @@ export function ChatInterface({
       </div>
     </div>
   );
-} 
+});
 
-// Add History to the ChatInterface object
-ChatInterface.History = HistoryComponent; 
+ChatInterface.displayName = 'ChatInterface'; 
