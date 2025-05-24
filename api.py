@@ -1,5 +1,5 @@
 # api.py
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any, Union
 import uvicorn
@@ -17,6 +17,13 @@ try:
     import ollama
 except ImportError:
     raise ImportError("Please install ollama package with: pip install ollama")
+
+# Import RAG functionality
+try:
+    from rag_helper import get_rag_manager
+except ImportError:
+    logging.error("RAG dependencies not available. Install with: pip install chromadb langchain langchain-community")
+    get_rag_manager = None
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -208,6 +215,20 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: Message
     model: str
+
+# RAG Request Models
+class DocumentUploadResponse(BaseModel):
+    success: bool
+    message: str
+    filename: Optional[str] = None
+
+class RAGQueryRequest(BaseModel):
+    query: str
+    model: Optional[str] = None
+    
+class RAGQueryResponse(BaseModel):
+    response: str
+    sources: List[dict]
 
 # --- API Endpoints ---
 @app.get("/api/providers")
@@ -468,6 +489,155 @@ async def chat_stream(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
+# RAG Endpoints
+@app.post("/api/rag/upload", response_model=DocumentUploadResponse)
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a document to the RAG knowledge base"""
+    if not get_rag_manager:
+        raise HTTPException(status_code=500, detail="RAG functionality not available")
+    
+    try:
+        # Check file type
+        if not file.filename.lower().endswith(('.pdf', '.txt')):
+            return DocumentUploadResponse(
+                success=False,
+                message="Only PDF and TXT files are supported"
+            )
+        
+        # Read file content
+        content = await file.read()
+        
+        # Get file extension
+        file_type = "pdf" if file.filename.lower().endswith('.pdf') else "txt"
+        
+        # Add to RAG system
+        rag_manager = get_rag_manager()
+        success = rag_manager.add_document(content, file.filename, file_type)
+        
+        if success:
+            return DocumentUploadResponse(
+                success=True,
+                message=f"Document '{file.filename}' uploaded successfully",
+                filename=file.filename
+            )
+        else:
+            return DocumentUploadResponse(
+                success=False,
+                message=f"Failed to upload document '{file.filename}'"
+            )
+            
+    except Exception as e:
+        logging.error(f"Error uploading document: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag/query", response_model=RAGQueryResponse)
+async def rag_query(request: RAGQueryRequest):
+    """Query the RAG system with context from uploaded documents"""
+    if not get_rag_manager:
+        raise HTTPException(status_code=500, detail="RAG functionality not available")
+    
+    try:
+        rag_manager = get_rag_manager()
+        
+        # Clean model name - remove "ollama/" prefix if present
+        model_name = request.model
+        if model_name and model_name.startswith("ollama/"):
+            model_name = model_name.replace("ollama/", "")
+        
+        # If no model provided, use a default from available models
+        if not model_name:
+            # Get available models and pick a good default
+            available_models = get_models_for_provider('ollama')
+            if available_models:
+                # Prefer larger models for better RAG responses
+                preferred_models = ['llama3.3:70b', 'qwen3:32b', 'qwen2.5vl:32b', 'gemma3:27b', 'devstral:24b']
+                for preferred in preferred_models:
+                    if preferred in available_models:
+                        model_name = preferred
+                        break
+                if not model_name:
+                    model_name = available_models[0]  # Use first available as fallback
+            else:
+                raise HTTPException(status_code=500, detail="No models available for RAG")
+        
+        # Get relevant documents
+        sources = rag_manager.search_documents(request.query, n_results=3)
+        
+        # Generate RAG response
+        response = rag_manager.generate_rag_response(request.query, model_name)
+        
+        return RAGQueryResponse(
+            response=response,
+            sources=sources
+        )
+        
+    except Exception as e:
+        logging.error(f"Error in RAG query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag/documents")
+async def list_documents():
+    """List all documents in the RAG knowledge base"""
+    if not get_rag_manager:
+        raise HTTPException(status_code=500, detail="RAG functionality not available")
+    
+    try:
+        rag_manager = get_rag_manager()
+        documents = rag_manager.list_documents()
+        return {"documents": documents}
+        
+    except Exception as e:
+        logging.error(f"Error listing documents: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/rag/documents/{filename}")
+async def delete_document(filename: str):
+    """Delete a document from the RAG knowledge base"""
+    if not get_rag_manager:
+        raise HTTPException(status_code=500, detail="RAG functionality not available")
+    
+    try:
+        rag_manager = get_rag_manager()
+        success = rag_manager.delete_document(filename)
+        
+        if success:
+            return {"message": f"Document '{filename}' deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting document: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag/status")
+async def rag_status():
+    """Check RAG system status"""
+    if not get_rag_manager:
+        return {
+            "available": False,
+            "error": "RAG dependencies not installed"
+        }
+    
+    try:
+        rag_manager = get_rag_manager()
+        embedding_available = rag_manager.check_embedding_model_available()
+        
+        return {
+            "available": True,
+            "embedding_model": rag_manager.embedding_model,
+            "embedding_model_available": embedding_available,
+            "collection_name": rag_manager.collection_name
+        }
+        
+    except Exception as e:
+        logging.error(f"Error checking RAG status: {str(e)}")
+        return {
+            "available": False,
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

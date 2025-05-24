@@ -3,11 +3,12 @@ import { ChatMessage } from '@/components/ChatMessage';
 import { ChatInput } from '@/components/ChatInput';
 import { Button } from '@/components/ui/button';
 import { ChatHistory, ModelSelection, ModelSettings as ModelSettingsType, MessageContent } from '@/types';
-import { createChatStream } from '@/lib/api';
+import { createChatStream, sendRAGQuery } from '@/lib/api';
 import { parseAssistantContent } from '@/lib/utils';
 import { Trash2, Eraser, ExternalLink } from 'lucide-react';
 import { ModelDropdown } from '@/components/ModelDropdown';
 import { useModel } from '@/contexts/ModelContext';
+import RAGToggle from '@/components/RAGToggle';
 
 // Storage key prefix for chat history
 const CHAT_HISTORY_STORAGE_PREFIX = 'ollama-webui-chat-history';
@@ -211,6 +212,9 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
       return;
     }
 
+    // Check if RAG is enabled for this query
+    const useRAG = modelSettings.ragEnabled && !imageBase64; // Don't use RAG for image queries
+
     // Create conversation ID if it doesn't exist
     if (!currentConversationId) {
       const newId = generateConversationId();
@@ -240,6 +244,26 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
     setError(null);
 
     try {
+      // Handle RAG query if enabled
+      if (useRAG) {
+        const modelString = selectedModel.manualModelString || 
+          (selectedModel.provider === 'ollama' 
+            ? `ollama/${selectedModel.model}`
+            : selectedModel.model);
+
+        const ragResponse = await sendRAGQuery(text, modelString);
+        
+        // Update chat history with RAG response
+        setChatHistory(prev => {
+          const updatedHistory = [...prev];
+          const lastMessage = updatedHistory[updatedHistory.length - 1];
+          lastMessage.assistant.content = parseAssistantContent(ragResponse.response);
+          return updatedHistory;
+        });
+        
+        setIsLoading(false);
+        return;
+      }
       // Prepare messages for API
       const messages = [
         ...(modelSettings.systemPrompt ? [{ role: 'system' as const, content: modelSettings.systemPrompt }] : []),
@@ -452,10 +476,19 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
             <div className="text-sm font-medium text-muted-foreground">Chat</div>
           )}
         </div>
-        <ModelDropdown 
-          modelSettings={modelSettings}
-          onSettingsChange={onSettingsChange}
-        />
+        
+        <div className="flex items-center gap-4">
+          <RAGToggle 
+            enabled={modelSettings.ragEnabled || false}
+            onToggle={(enabled) => onSettingsChange({ ...modelSettings, ragEnabled: enabled })}
+            disabled={isLoading}
+            selectedModel={selectedModel?.model || undefined}
+          />
+          <ModelDropdown 
+            modelSettings={modelSettings}
+            onSettingsChange={onSettingsChange}
+          />
+        </div>
       </div>
       
       {/* Chat container */}

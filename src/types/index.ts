@@ -62,6 +62,7 @@ export interface ChatResponse {
 export interface ModelSettings {
   systemPrompt: string;
   temperature: number;
+  ragEnabled?: boolean;
 }
 
 export interface ModelSelection {

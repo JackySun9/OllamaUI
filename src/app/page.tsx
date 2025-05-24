@@ -7,8 +7,9 @@ import { ChatInterface } from '@/components/ChatInterface';
 import { SimpleHistory } from '@/components/SimpleHistory';
 import { ModelSettings as ModelSettingsType, ChatHistory } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Plus, BookOpen, FileText, ArrowLeft, User } from 'lucide-react';
+import { Plus, BookOpen, FileText, ArrowLeft, User, Database } from 'lucide-react';
 import { SystemPromptLearningDashboard } from '@/components/SystemPromptLearningDashboard';
+import RAGManager from '@/components/RAGManager';
 import Link from 'next/link';
 import { sendChatMessage } from '@/lib/api';
 import { ModelProvider, useModel } from '@/contexts/ModelContext';
@@ -19,11 +20,13 @@ function HomeContent() {
   const [modelSettings, setModelSettings] = useState<ModelSettingsType>({
     systemPrompt: '',
     temperature: 0.7,
+    ragEnabled: false,
   });
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('chat');
   const [newChat, setNewChat] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
+  const [ragManagerMode, setRagManagerMode] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   // Ref to the ChatInterface to call its methods
@@ -151,6 +154,35 @@ function HomeContent() {
     );
   }
 
+  // If in RAG manager mode, show the RAG management interface
+  if (ragManagerMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="p-4 border-b">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setRagManagerMode(false)}
+                className="gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Chat
+              </Button>
+              <h1 className="text-xl font-semibold">Knowledge Base Manager</h1>
+            </div>
+            <ModeToggle />
+          </div>
+        </div>
+        
+        <div className="p-6">
+          <RAGManager />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Mobile header */}
@@ -195,6 +227,16 @@ function HomeContent() {
             >
               <BookOpen size={16} className="mr-2" />
               Learning Lab
+            </Button>
+            
+            {/* RAG Manager Button */}
+            <Button 
+              onClick={() => setRagManagerMode(true)}
+              className="mb-4 w-full justify-start"
+              variant="secondary"
+            >
+              <Database size={16} className="mr-2" />
+              Knowledge Base
             </Button>
             
             {/* Markdown Demo Link */}

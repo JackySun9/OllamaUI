@@ -282,4 +282,84 @@ export const createChatStream = (
       }
     },
   };
+};
+
+// RAG-specific API functions
+export interface RAGQueryRequest {
+  query: string;
+  model?: string;
+}
+
+export interface RAGQueryResponse {
+  response: string;
+  sources: Array<{
+    content: string;
+    metadata: Record<string, any>;
+    distance?: number;
+  }>;
+}
+
+export interface RAGStatus {
+  available: boolean;
+  embedding_model?: string;
+  embedding_model_available?: boolean;
+  collection_name?: string;
+  error?: string;
+}
+
+export const sendRAGQuery = async (
+  query: string,
+  model?: string
+): Promise<RAGQueryResponse> => {
+  if (!query.trim()) {
+    throw new Error('Query is required for RAG search');
+  }
+  
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/rag/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        model: model,
+      }),
+    });
+    
+    if (!response.ok) {
+      await handleApiError(response, 'Failed to send RAG query');
+    }
+    
+    const data = await response.json();
+    if (!data.response) {
+      throw new Error('Invalid response received from RAG API');
+    }
+    
+    return data;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('timed out')) {
+        throw new Error(`RAG query timed out. The knowledge base might be processing a large request.`);
+      }
+      throw new Error(`RAG error: ${error.message}`);
+    }
+    throw new Error('Unknown error during RAG query');
+  }
+};
+
+export const getRAGStatus = async (): Promise<RAGStatus> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/rag/status`);
+    
+    if (!response.ok) {
+      await handleApiError(response, 'Failed to get RAG status');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching RAG status:', error);
+    return {
+      available: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }; 
