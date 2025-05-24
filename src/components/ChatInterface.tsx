@@ -143,16 +143,67 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
     
     if (chatHistory.length > 0) {
       console.debug(`Saving conversation ${currentConversationId} with ${chatHistory.length} messages`);
-      // Add timestamp to each message when storing
+      
+      // Add timestamp to each message when storing, but exclude images to save space
       const storedHistory = chatHistory.map(item => ({
         ...item,
+        assistant: {
+          ...item.assistant,
+          // Exclude image data from localStorage to prevent quota issues
+          image: undefined
+        },
         timestamp: item.hasOwnProperty('timestamp') 
           ? (item as unknown as StoredChatHistory).timestamp 
           : Date.now()
       }));
       
-      localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
-      localStorage.setItem(`${storageKey}-current`, currentConversationId);
+      try {
+        localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
+        localStorage.setItem(`${storageKey}-current`, currentConversationId);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'QuotaExceededError') {
+          console.warn('localStorage quota exceeded, attempting cleanup...');
+          
+          // Try to clean up old conversations
+          const cleanupOldConversations = () => {
+            try {
+              const keys = [];
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith(CHAT_HISTORY_STORAGE_PREFIX)) {
+                  keys.push(key);
+                }
+              }
+              
+              // Sort by key (which includes timestamp) and remove oldest ones
+              keys.sort();
+              const keysToRemove = keys.slice(0, Math.max(1, Math.floor(keys.length / 3))); // Remove oldest 1/3
+              
+              keysToRemove.forEach(key => {
+                try {
+                  localStorage.removeItem(key);
+                  console.debug(`Removed old conversation: ${key}`);
+                } catch (e) {
+                  console.warn('Failed to remove old conversation:', e);
+                }
+              });
+              
+              // Try saving again after cleanup
+              localStorage.setItem(`${storageKey}-${currentConversationId}`, JSON.stringify(storedHistory));
+              localStorage.setItem(`${storageKey}-current`, currentConversationId);
+              console.info('Successfully saved after cleanup');
+            } catch (cleanupError) {
+              console.error('Failed to save even after cleanup:', cleanupError);
+              // Show user-friendly error
+              setError('Chat history storage is full. Some older conversations may have been removed to make space.');
+            }
+          };
+          
+          cleanupOldConversations();
+        } else {
+          console.error('Failed to save chat history:', error);
+        }
+      }
     }
   }, [chatHistory, selectedModel, currentConversationId, isLoadingExistingConversation]);
 
@@ -370,10 +421,13 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
               const lastMessage = updatedHistory[updatedHistory.length - 1];
               
               let finalContent = '';
+              let imageData = undefined;
+              
               if (typeof data.message === 'object' && data.message && 'content' in data.message) {
-                const message = data.message as { content: unknown };
+                const message = data.message as { content: unknown; image?: string };
                 const content = message.content;
                 finalContent = typeof content === 'string' ? content : String(content);
+                imageData = message.image;
               } else {
                 // Fallback to current content if no final message
                 finalContent = typeof lastMessage.assistant.content === 'string' 
@@ -384,6 +438,11 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
               // Parse the final content for multiple output types
               if (finalContent.trim()) {
                 lastMessage.assistant.content = parseAssistantContent(finalContent);
+              }
+              
+              // Add image data if present
+              if (imageData) {
+                lastMessage.assistant.image = imageData;
               }
               
               return updatedHistory;
@@ -548,6 +607,7 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(({
                   <ChatMessage 
                     role="assistant" 
                     content={chat.assistant.content} 
+                    image={chat.assistant.image}
                     isStreaming={index === chatHistory.length - 1 && isLoading}
                     style="modern"
                   />

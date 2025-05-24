@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, SendHorizontal, X, Bot } from 'lucide-react';
+import { Image, SendHorizontal, X, Bot, Palette } from 'lucide-react';
 import { imageToBase64 } from '@/lib/utils';
 import { VoiceInputButton } from './VoiceInputButton';
 import { VoiceLanguageSelector } from './VoiceLanguageSelector';
@@ -104,6 +104,27 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
     }, 100);
   };
 
+  // Add image generation command
+  const addImageCommand = () => {
+    const command = '/imagine ';
+    setMessage(prev => {
+      if (prev.trim() === '') {
+        return command;
+      } else {
+        return prev + (prev.endsWith(' ') ? '' : ' ') + command;
+      }
+    });
+    
+    // Focus the textarea and position cursor at the end
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+    }, 100);
+  };
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       {/* Optional model badge */}
@@ -162,6 +183,18 @@ export function ChatInput({ onSendMessage, isLoading = false, model }: ChatInput
             disabled={isLoading}
             language={voiceLanguage}
           />
+          
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={addImageCommand}
+            disabled={isLoading}
+            className="h-10 w-10 rounded-full"
+            title="Generate image (/imagine)"
+          >
+            <Palette size={18} />
+          </Button>
           
           <Button
             type="button"

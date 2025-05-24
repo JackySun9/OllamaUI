@@ -5,6 +5,7 @@ ollama
 pillow
 python-multipart
 requests
+httpx
 chromadb
 langchain
 langchain-community

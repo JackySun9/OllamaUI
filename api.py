@@ -1,6 +1,7 @@
 # api.py
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from typing import List, Optional, Dict, Any, Union
 import uvicorn
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ from PIL import Image
 import json
 import re
 import asyncio
+import httpx
 
 # Import existing Ollama functionality
 try:
@@ -29,6 +31,9 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = FastAPI(title="Ollama WebUI API")
+
+# Image generation service configuration
+IMAGE_SERVICE_URL = "http://localhost:8001"
 
 # Configure CORS for frontend connection
 app.add_middleware(
@@ -230,6 +235,18 @@ class RAGQueryResponse(BaseModel):
     response: str
     sources: List[dict]
 
+# Image Generation Request Models
+class ImageGenerationRequest(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = "low quality, bad anatomy, worst quality, low resolution"
+    num_inference_steps: int = 8
+    guidance_scale: float = 1.5
+
+class ImageGenerationResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    image_url: Optional[str] = None
+
 # --- API Endpoints ---
 @app.get("/api/providers")
 async def get_providers():
@@ -291,6 +308,95 @@ async def get_provider_models(provider: str, t: Optional[str] = None, force_refr
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
+        # Check if the latest message is an image generation command
+        if request.messages and len(request.messages) > 0:
+            latest_message = request.messages[-1]
+            message_text = ""
+            
+            # Extract text from message content
+            if isinstance(latest_message.content, str):
+                message_text = latest_message.content
+            elif isinstance(latest_message.content, list):
+                for content_item in latest_message.content:
+                    if isinstance(content_item, MessageContent) and content_item.text:
+                        message_text += content_item.text + " "
+                    elif isinstance(content_item, dict) and content_item.get("text"):
+                        message_text += content_item["text"] + " "
+            
+            message_text = message_text.strip()
+            
+            # Check for image generation commands
+            image_commands = ["/imagine", "/generate", "/image", "/draw", "/create-image", "/pic"]
+            if any(message_text.lower().startswith(cmd) for cmd in image_commands):
+                # Extract the prompt after the command
+                for cmd in image_commands:
+                    if message_text.lower().startswith(cmd):
+                        prompt = message_text[len(cmd):].strip()
+                        if not prompt:
+                            return {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": f"Please provide a description for the image you want to generate. For example: `{cmd} a beautiful sunset over mountains`"
+                                },
+                                "model": request.model
+                            }
+                        
+                        # Generate the image
+                        try:
+                            logging.info(f"Generating image for prompt: {prompt[:100]}...")
+                            
+                            async with httpx.AsyncClient(timeout=300.0) as client:
+                                image_payload = {
+                                    "prompt": prompt,
+                                    "negative_prompt": "low quality, bad anatomy, worst quality, low resolution",
+                                    "num_inference_steps": 8,
+                                    "guidance_scale": 1.5
+                                }
+                                
+                                response = await client.post(f"{IMAGE_SERVICE_URL}/predict", json=image_payload)
+                                
+                                if response.status_code == 200:
+                                    # Convert image to base64 for embedding in chat
+                                    import base64
+                                    image_b64 = base64.b64encode(response.content).decode('utf-8')
+                                    
+                                    return {
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": f"I've generated an image for: **{prompt}**",
+                                            "image": f"data:image/png;base64,{image_b64}"
+                                        },
+                                        "model": request.model,
+                                        "image_generated": True
+                                    }
+                                else:
+                                    return {
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": f"Sorry, I couldn't generate an image for '{prompt}'. The image generation service returned an error. Please try again or check if the image generation service is running."
+                                        },
+                                        "model": request.model
+                                    }
+                        
+                        except httpx.ConnectError:
+                            return {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "Sorry, the image generation service is not available. Please make sure it's running and try again."
+                                },
+                                "model": request.model
+                            }
+                        except Exception as e:
+                            logging.error(f"Error generating image in chat: {str(e)}")
+                            return {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": f"Sorry, there was an error generating the image: {str(e)}"
+                                },
+                                "model": request.model
+                            }
+        
+        # Regular chat processing
         from litellm import completion
         
         # Process messages to ensure they're in the correct format for LiteLLM
@@ -380,6 +486,122 @@ async def chat_stream(websocket: WebSocket):
         
         # Force stream to true for WebSocket API
         chat_request.stream = True
+        
+        # Check for image generation commands in streaming chat
+        if chat_request.messages and len(chat_request.messages) > 0:
+            latest_message = chat_request.messages[-1]
+            message_text = ""
+            
+            # Extract text from message content
+            if isinstance(latest_message.content, str):
+                message_text = latest_message.content
+            elif isinstance(latest_message.content, list):
+                for content_item in latest_message.content:
+                    if isinstance(content_item, MessageContent) and content_item.text:
+                        message_text += content_item.text + " "
+                    elif isinstance(content_item, dict) and content_item.get("text"):
+                        message_text += content_item["text"] + " "
+            
+            message_text = message_text.strip()
+            
+            # Check for image generation commands
+            image_commands = ["/imagine", "/generate", "/image", "/draw", "/create-image", "/pic"]
+            if any(message_text.lower().startswith(cmd) for cmd in image_commands):
+                # Extract the prompt after the command
+                for cmd in image_commands:
+                    if message_text.lower().startswith(cmd):
+                        prompt = message_text[len(cmd):].strip()
+                        if not prompt:
+                            await websocket.send_json({
+                                "chunk": f"Please provide a description for the image you want to generate. For example: `{cmd} a beautiful sunset over mountains`",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": f"Please provide a description for the image you want to generate. For example: `{cmd} a beautiful sunset over mountains`"
+                                }
+                            })
+                            await websocket.send_json({
+                                "done": True,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": f"Please provide a description for the image you want to generate. For example: `{cmd} a beautiful sunset over mountains`"
+                                },
+                                "model": chat_request.model
+                            })
+                            return
+                        
+                        # Send initial message
+                        await websocket.send_json({
+                            "chunk": f"🎨 Generating image for: {prompt}...",
+                            "message": {
+                                "role": "assistant",
+                                "content": f"🎨 Generating image for: {prompt}..."
+                            }
+                        })
+                        
+                        # Generate the image
+                        try:
+                            logging.info(f"Generating image for prompt in stream: {prompt[:100]}...")
+                            
+                            async with httpx.AsyncClient(timeout=300.0) as client:
+                                image_payload = {
+                                    "prompt": prompt,
+                                    "negative_prompt": "low quality, bad anatomy, worst quality, low resolution",
+                                    "num_inference_steps": 8,
+                                    "guidance_scale": 1.5
+                                }
+                                
+                                response = await client.post(f"{IMAGE_SERVICE_URL}/predict", json=image_payload)
+                                
+                                if response.status_code == 200:
+                                    # Convert image to base64 for embedding in chat
+                                    import base64
+                                    image_b64 = base64.b64encode(response.content).decode('utf-8')
+                                    
+                                    final_content = f"I've generated an image for: **{prompt}**"
+                                    
+                                    await websocket.send_json({
+                                        "done": True,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": final_content,
+                                            "image": f"data:image/png;base64,{image_b64}"
+                                        },
+                                        "model": chat_request.model,
+                                        "image_generated": True
+                                    })
+                                else:
+                                    error_msg = f"Sorry, I couldn't generate an image for '{prompt}'. Please try again."
+                                    await websocket.send_json({
+                                        "done": True,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": error_msg
+                                        },
+                                        "model": chat_request.model
+                                    })
+                        
+                        except httpx.ConnectError:
+                            error_msg = "Sorry, the image generation service is not available. Please make sure it's running and try again."
+                            await websocket.send_json({
+                                "done": True,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": error_msg
+                                },
+                                "model": chat_request.model
+                            })
+                        except Exception as e:
+                            logging.error(f"Error generating image in stream: {str(e)}")
+                            error_msg = f"Sorry, there was an error generating the image: {str(e)}"
+                            await websocket.send_json({
+                                "done": True,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": error_msg
+                                },
+                                "model": chat_request.model
+                            })
+                        return
             
         try:
             from litellm import completion
@@ -638,6 +860,69 @@ async def rag_status():
             "available": False,
             "error": str(e)
         }
+
+# Image Generation Endpoints
+@app.get("/api/image/status")
+async def image_generation_status():
+    """Check if image generation service is running"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{IMAGE_SERVICE_URL}/health", timeout=5.0)
+            return {
+                "available": response.status_code == 200,
+                "service": "stable-diffusion-3.5"
+            }
+    except Exception as e:
+        logging.error(f"Image generation service not available: {str(e)}")
+        return {
+            "available": False,
+            "error": str(e)
+        }
+
+@app.post("/api/image/generate")
+async def generate_image(request: ImageGenerationRequest):
+    """Generate an image using Stable Diffusion"""
+    try:
+        # Prepare request for image generation service
+        payload = {
+            "prompt": request.prompt,
+            "negative_prompt": request.negative_prompt,
+            "num_inference_steps": request.num_inference_steps,
+            "guidance_scale": request.guidance_scale
+        }
+        
+        logging.info(f"Generating image for prompt: {request.prompt[:100]}...")
+        
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout for image generation
+            response = await client.post(f"{IMAGE_SERVICE_URL}/predict", json=payload)
+            
+            if response.status_code == 200:
+                # Return the image directly
+                return Response(
+                    content=response.content,
+                    media_type="image/png",
+                    headers={
+                        "Content-Disposition": "inline; filename=generated_image.png"
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Image generation failed: {response.text}"
+                )
+                
+    except httpx.TimeoutException:
+        logging.error("Image generation timeout")
+        raise HTTPException(status_code=504, detail="Image generation timeout")
+    except httpx.ConnectError:
+        logging.error("Cannot connect to image generation service")
+        raise HTTPException(
+            status_code=503, 
+            detail="Image generation service unavailable. Make sure the service is running on port 8001."
+        )
+    except Exception as e:
+        logging.error(f"Error generating image: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

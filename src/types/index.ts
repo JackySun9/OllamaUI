@@ -43,6 +43,7 @@ export interface ChatHistory {
   };
   assistant: {
     content: string | ParsedAssistantContent;
+    image?: string; // Base64 image data for generated images
   };
 }
 
@@ -55,8 +56,11 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
-  message: ChatMessage;
+  message: ChatMessage & {
+    image?: string; // Base64 image data for generated images
+  };
   model: string;
+  image_generated?: boolean; // Flag to indicate if this response contains a generated image
 }
 
 export interface ModelSettings {

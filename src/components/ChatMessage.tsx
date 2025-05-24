@@ -9,6 +9,7 @@ import { ParsedAssistantContent } from '@/types';
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string | { text: string; image?: string } | ParsedAssistantContent;
+  image?: string; // For generated images from assistant
   timestamp?: Date;
   isLoading?: boolean;
   isStreaming?: boolean;
@@ -18,6 +19,7 @@ interface ChatMessageProps {
 export function ChatMessage({ 
   role, 
   content, 
+  image,
   timestamp = new Date(), 
   isLoading = false,
   isStreaming = false,
@@ -79,6 +81,9 @@ export function ChatMessage({
   };
 
   const getImageUrl = (): string | undefined => {
+    // Check for assistant generated image first
+    if (image) return image;
+    // Then check for user uploaded image
     if (typeof content === 'string' || 'rawContent' in content) return undefined;
     return content.image;
   };
@@ -117,9 +122,14 @@ export function ChatMessage({
             <div className="mb-3">
               <img 
                 src={getImageUrl() || ''} 
-                alt="Uploaded image"
+                alt={role === 'assistant' ? 'Generated image' : 'Uploaded image'}
                 className="rounded-md max-h-80 max-w-full object-contain"
               />
+              {role === 'assistant' && (
+                <div className="text-xs text-muted-foreground mt-1 italic">
+                  ⚠️ Generated images are not saved in chat history due to storage limitations
+                </div>
+              )}
             </div>
           )}
           
@@ -182,9 +192,14 @@ export function ChatMessage({
           <div className="mb-2">
             <img 
               src={getImageUrl() || ''} 
-              alt="Uploaded image"
+              alt={role === 'assistant' ? 'Generated image' : 'Uploaded image'}
               className="rounded-md max-h-60 max-w-full object-contain"
             />
+            {role === 'assistant' && (
+              <div className="text-xs text-muted-foreground mt-1 italic">
+                ⚠️ Generated images are not saved in chat history
+              </div>
+            )}
           </div>
         )}
         

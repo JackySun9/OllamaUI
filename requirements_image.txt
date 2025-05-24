@@ -1,0 +1,14 @@
+# Image Generation Service Dependencies
+litserve
+torch
+torchvision
+diffusers
+transformers
+accelerate
+safetensors
+pillow
+huggingface_hub
+fastapi
+uvicorn
+sentencepiece
+peft 
