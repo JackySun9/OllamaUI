@@ -7,8 +7,9 @@ import { ChatInterface } from '@/components/ChatInterface';
 import { SimpleHistory } from '@/components/SimpleHistory';
 import { ModelSettings as ModelSettingsType, ChatHistory } from '@/types';
 import { ModeToggle } from '@/components/ModeToggle';
-import { Plus, BookOpen, FileText, ArrowLeft, User, Database } from 'lucide-react';
+import { Plus, BookOpen, FileText, ArrowLeft, User, Database, Settings } from 'lucide-react';
 import { SystemPromptLearningDashboard } from '@/components/SystemPromptLearningDashboard';
+import { MCPTools } from '@/components/MCPTools';
 import RAGManager from '@/components/RAGManager';
 import Link from 'next/link';
 import { sendChatMessage } from '@/lib/api';
@@ -27,6 +28,7 @@ function HomeContent() {
   const [newChat, setNewChat] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
   const [ragManagerMode, setRagManagerMode] = useState(false);
+  const [mcpToolsMode, setMcpToolsMode] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   
   // Ref to the ChatInterface to call its methods
@@ -183,6 +185,35 @@ function HomeContent() {
     );
   }
 
+  // If in MCP Tools mode, show the MCP tools interface
+  if (mcpToolsMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="p-4 border-b">
+          <div className="flex items-center justify-between max-w-6xl mx-auto">
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setMcpToolsMode(false)}
+                className="gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Chat
+              </Button>
+              <h1 className="text-xl font-semibold">MCP Tools & Resources</h1>
+            </div>
+            <ModeToggle />
+          </div>
+        </div>
+        
+        <div className="p-6">
+          <MCPTools />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Mobile header */}
@@ -237,6 +268,16 @@ function HomeContent() {
             >
               <Database size={16} className="mr-2" />
               Knowledge Base
+            </Button>
+            
+            {/* MCP Tools Button */}
+            <Button 
+              onClick={() => setMcpToolsMode(true)}
+              className="mb-4 w-full justify-start"
+              variant="secondary"
+            >
+              <Settings size={16} className="mr-2" />
+              MCP Tools
             </Button>
             
             {/* Markdown Demo Link */}

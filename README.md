@@ -8,6 +8,7 @@ This project consists of two main parts:
 
 1. **Frontend**: A Next.js application with modern UI components
 2. **Backend**: A Python API server using FastAPI that connects to Ollama and other LLM providers
+3. **MCP Integration**: Model Context Protocol support for dynamic tool integration
 
 ## Features
 
@@ -21,6 +22,48 @@ This project consists of two main parts:
 - 🎤 **Voice Input Support** - Speak your messages with real-time transcription
 - 🌍 **Multi-language Voice Recognition** - Support for 25+ languages
 - 🔒 **Privacy-focused** - Voice processing happens locally in your browser
+- 🛠️ **MCP Tools Integration** - Dynamic tool discovery and execution via Model Context Protocol
+
+## MCP (Model Context Protocol) Integration
+
+### What is MCP?
+
+MCP is a standardized protocol that allows AI models to interact with external tools and data sources dynamically. Our integration provides:
+
+- **Dynamic Tool Discovery**: Automatically discover and use available tools
+- **Built-in Tools**: Calculator, web search, Ollama model management, and more
+- **Custom Tool Support**: Easy integration of custom tools and APIs
+- **Secure Execution**: Safe tool execution with proper validation
+- **Real-time Updates**: Live tool results and status updates
+
+### Built-in MCP Tools
+
+- 🕒 **Current Time**: Get current date and time
+- 🤖 **Ollama Models**: List and manage Ollama models
+- 🔍 **Web Search**: Search the web for information (extensible)
+- 🧮 **Calculator**: Safe mathematical expression evaluation
+- 📝 **Text Generation**: Generate text using Ollama models
+- 🔧 **Custom Tools**: Framework for adding your own tools
+
+### Quick Start with MCP
+
+1. **Start all services**:
+   ```bash
+   ./start_mcp_services.sh
+   ```
+
+2. **Access the application**:
+   - Frontend: http://localhost:3000
+   - API Server: http://localhost:8000
+   - MCP Server: http://localhost:8002
+   - API Documentation: http://localhost:8000/docs
+
+3. **Stop all services**:
+   ```bash
+   ./stop_mcp_services.sh
+   ```
+
+For detailed MCP integration guide, see [MCP_INTEGRATION_GUIDE.md](./MCP_INTEGRATION_GUIDE.md).
 
 ## Voice Input
 
@@ -56,7 +99,21 @@ For detailed instructions, see [VOICE_INPUT_GUIDE.md](./VOICE_INPUT_GUIDE.md).
 
 ## Installation
 
-### Backend
+### Quick Setup (Recommended)
+
+Use the automated setup script:
+
+```bash
+# Make scripts executable
+chmod +x start_mcp_services.sh stop_mcp_services.sh
+
+# Start all services (includes dependency installation)
+./start_mcp_services.sh
+```
+
+### Manual Setup
+
+#### Backend
 
 1. Install the required Python packages:
 
@@ -90,15 +147,17 @@ For detailed instructions, see [VOICE_INPUT_GUIDE.md](./VOICE_INPUT_GUIDE.md).
     pip install -r requirements.txt
     ```
 
-2. Start the backend server:
+2. Start the backend servers:
 
 ```bash
+# Start MCP Server (port 8002)
+python mcp_server.py
+
+# Start Main API Server (port 8000)
 python api.py
 ```
 
-The backend will run on http://localhost:8000.
-
-### Frontend
+#### Frontend
 
 1. Install dependencies:
 
@@ -129,6 +188,29 @@ To use external providers like OpenAI, Anthropic, etc., set your API keys as env
 - The frontend code is designed with component-based architecture using shadcn/ui.
 - WebSocket is used for streaming responses for a responsive chat experience.
 - Voice input uses the Web Speech API for local, privacy-focused speech recognition.
+- MCP integration provides extensible tool support with secure execution.
+
+## Project Structure
+
+```
+ollama-webui-frontend/
+├── src/                          # Frontend source code
+│   ├── components/              # React components
+│   │   ├── ui/                 # UI components (shadcn/ui)
+│   │   └── MCPTools.tsx        # MCP tools interface
+│   ├── contexts/               # React contexts
+│   │   └── MCPContext.tsx      # MCP state management
+│   ├── types/                  # TypeScript type definitions
+│   │   └── mcp.ts             # MCP types
+│   └── app/                    # Next.js app directory
+├── api.py                      # Main FastAPI server
+├── mcp_server.py              # MCP server implementation
+├── requirements.txt           # Python dependencies
+├── package.json              # Node.js dependencies
+├── start_mcp_services.sh     # Start all services
+├── stop_mcp_services.sh      # Stop all services
+└── MCP_INTEGRATION_GUIDE.md  # Detailed MCP guide
+```
 
 ## Deployment
 
@@ -143,12 +225,27 @@ npm run build
 2. For the backend, consider using a production ASGI server:
 
 ```bash
+# Main API Server
 uvicorn api:app --host 0.0.0.0 --port 8000
+
+# MCP Server
+uvicorn mcp_server:app --host 0.0.0.0 --port 8002
 ```
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Adding MCP Tools
+
+To add new MCP tools:
+
+1. Implement the tool function in `mcp_server.py`
+2. Add the tool schema to the initialization
+3. Test the tool via the MCP interface
+4. Update documentation
+
+See [MCP_INTEGRATION_GUIDE.md](./MCP_INTEGRATION_GUIDE.md) for detailed instructions.
 
 ## License
 

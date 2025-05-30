@@ -34,6 +34,7 @@ app = FastAPI(title="Ollama WebUI API")
 
 # Image generation service configuration
 IMAGE_SERVICE_URL = "http://localhost:8001"
+MCP_SERVER_URL = "http://localhost:8002"
 
 # Configure CORS for frontend connection
 app.add_middleware(
@@ -922,6 +923,87 @@ async def generate_image(request: ImageGenerationRequest):
         )
     except Exception as e:
         logging.error(f"Error generating image: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# MCP Proxy Endpoints - Forward requests to MCP server
+@app.get("/api/mcp/status")
+async def mcp_status():
+    """Proxy MCP status check to MCP server"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{MCP_SERVER_URL}/api/mcp/status", timeout=5.0)
+            return response.json()
+    except Exception as e:
+        logging.error(f"MCP status check failed: {str(e)}")
+        return {"connected": False, "error": str(e)}
+
+@app.get("/api/mcp/servers")
+async def mcp_servers():
+    """Proxy MCP servers list to MCP server"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{MCP_SERVER_URL}/api/mcp/servers", timeout=10.0)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="MCP server not available")
+    except Exception as e:
+        logging.error(f"MCP servers request failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/mcp/tools")
+async def mcp_tools():
+    """Proxy MCP tools list to MCP server"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{MCP_SERVER_URL}/api/mcp/tools", timeout=10.0)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="MCP server not available")
+    except Exception as e:
+        logging.error(f"MCP tools request failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/mcp/resources")
+async def mcp_resources(uri: Optional[str] = None):
+    """Proxy MCP resources request to MCP server"""
+    try:
+        params = {"uri": uri} if uri else {}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{MCP_SERVER_URL}/api/mcp/resources", params=params, timeout=10.0)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="MCP server not available")
+    except Exception as e:
+        logging.error(f"MCP resources request failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/mcp/tools/call")
+async def mcp_tool_call(request: dict):
+    """Proxy MCP tool call to MCP server"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{MCP_SERVER_URL}/api/mcp/tools/call", 
+                json=request, 
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="MCP server not available")
+    except Exception as e:
+        logging.error(f"MCP tool call failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
